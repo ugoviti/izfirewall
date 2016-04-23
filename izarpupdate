@@ -1,0 +1,77 @@
+#!/bin/sh
+# description: InitZero s.r.l. Linux Firewall Router ARP Cleaner
+# chkconfig: - 99 10
+VERSION="1.0"
+
+     IF="eth1"
+SERVERS="172.28.254.20"
+ ROUTER="172.28.254.254"
+
+arpastorouter() {
+  echo "1" > /proc/sys/net/ipv4/ip_nonlocal_bind
+  for SERVER in $SERVERS
+    do
+      arping -I $IF -U -c 3 -s $SERVER $ROUTER
+    done
+  echo "0" > /proc/sys/net/ipv4/ip_nonlocal_bind
+}
+
+###############################################################################################
+## valid script input from command line
+# command prompt menu
+usage(){
+  local progname=$0
+  echo "izArpUpdate :: update the arp tables of routers
+written by Ugo Viti <ugo.viti@initzero.it>
+version: $VERSION released: $VERSION_DATE
+
+usage: $progname [options]
+
+Option:    Description:
+-----------------------------------------------
+  start    Start the izbalancing subsystem
+  stop     Stop the izbalancing subsystem
+  restart  Restart the izbalancing subsystem
+  -h       display this help menu
+  -V       display software version
+
+usage: $0 [OPTIONS]"
+}
+
+
+###################################################################
+#################### default program menu and arguments validations
+
+NO_ARGS=0
+_OPTERROR=65
+
+if [ $# -eq "$NO_ARGS" ]  # Script invoked with no command-line args?
+then
+  usage
+  exit $E_OPTERROR        # Exit and explain usage, if no argument(s) given.
+fi
+# Usage: scriptname -options
+# Note: dash (-) necessary
+
+
+case $1 in
+    stop)
+        exit 0
+        ;;
+    start)
+        arpastorouter
+        exit 0
+        ;;
+    restart)
+        arpastorouter
+        exit 0
+        ;;
+    -V)
+        echo $VERSION
+        exit 0
+        ;;
+
+     *|-h)
+	usage
+        exit 1
+esac

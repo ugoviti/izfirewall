@@ -1,0 +1,1233 @@
+#!/bin/sh
+# description: izFirewall :: InitZero Linux firewall subsystem
+# chkconfig: 35 97 11
+
+# Script di configurazione FIREWALL - NetFilter Linux Kernel 2.4.x/2.6.x
+# Realizzazione a cura di Ugo Viti <ugo.viti@initzero.it>
+VERSION="1.1"
+VERSION_DATE="20130530"
+
+#########################################################
+## variabili indispensabili per il corretto funzionamento dello script
+
+if_manage() {
+  NET0_IF="eth0"	# lan
+  #NET1_IF="eth1"	# dmz
+  NET2_IF="eth1"	# internet1 hdsl 8mbit/8mbit
+  #NET3_IF="eth2"	# internet2 adsl 20mbit/1mbit
+  #NET4_IF="eth3"	# internet3 adsl 8mbit/1mbit
+
+  #VPN0_IF="tun0"	# server udp
+  #VPN1_IF="tun1"	# server tcp
+
+  if_manage_internal
+
+  # arp publishing. format: INTERFACE_NAME:FAKE_IP:REAL_IP
+  #ARPHOSTS="$NET2_FW_IF:83.147.69.141:172.16.1.8"
+}
+
+
+chain_prerouting () {
+ #########################################################
+ ## PREROUTING Chain
+ ## Before routing the packets
+
+ #transparent_proxy_auto_management
+
+ ## NAT FROM LAN TO INTERNET
+ # transparent proxy 
+ #iptables -t nat -A PREROUTING -p TCP -i $NET0_IF -s $NET0_NW -d   $NET0_NW  -m tcp --dport 80 -j ACCEPT # bypass
+ #iptables -t nat -A PREROUTING -p TCP -i $NET0_IF -s $NET0_NW                -m tcp --dport 80 -j REDIRECT --to-port 3128 # enable transparent proxy
+
+ ## NAT FROM INTERNET TO LAN
+ #iptables -t nat -A PREROUTING -p TCP  -d 83.147.101.131 --dport 3390 -j DNAT --to-destination 172.16.1.9:3389 # web
+ #iptables -t nat -A PREROUTING -p TCP  -d 83.147.101.131 -m multiport --dports 25,80,143    -j DNAT --to-destination 172.16.1.1 # other services
+
+ dummy=""
+}
+
+chain_postrouting () {
+ #########################################################
+ ## POSTROUTING Chain
+ ## After routing the packets
+
+ # nat servers 1 a 1 in uscita su internet
+ #iptables -t nat -A POSTROUTING -p ALL -s 172.16.1.1 -o $NET2_IF -j SNAT --to-source 83.147.101.131 # www.initzero.it
+
+ # lan to lan nat workaround
+ #iptables -t nat -A POSTROUTING -p ALL -s $NET0_NW -o $NET0_IF -j MASQUERADE
+ # dmz to dmz nat workaround
+ #iptables -t nat -A POSTROUTING -p ALL -s $NET1_NW -o $NET1_IF -j MASQUERADE
+
+ # tutto il resto viene nattato verso internet con gli ip del firewall
+ iptables -t nat -A POSTROUTING -p ALL -o $NET2_IF -j SNAT --to-source $NET2_IP
+ #iptables -t nat -A POSTROUTING -p ALL -o $NET3_IF -j SNAT --to-source $NET3_IP
+ #iptables -t nat -A POSTROUTING -p ALL -o $NET4_IF -j SNAT --to-source $NET4_IP
+
+ # nat from firewall behind a natting router having a only public ip address fully natted to local firewall ip
+ #iptables -t nat -A OUTPUT -d 85.33.149.250  -j DNAT --to-destination 192.168.33.1
+ #iptables -t nat -A OUTPUT -d 85.33.150.10   -j DNAT --to-destination 192.168.33.1
+ #iptables -t nat -A OUTPUT -d 83.147.68.236  -j DNAT --to-destination 192.168.33.1
+
+ dummy=""
+}
+
+
+chain_custom() {
+
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ # FORWARD INTERNET TO DMZ
+ #-------------------------------------------------------
+ iptables -N INTERNET_TO_DMZ
+ iptables -A INTERNET_TO_DMZ -p ICMP -j ACCEPT # icmp
+
+ # www.initzero.it
+ #iptables -A INTERNET_TO_DMZ -p TCP -d 192.168.210.2  -m multiport --dports 21,25,80,143 -j ACCEPT # public services
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ # FORWARD INTERNET TO LAN
+ #-------------------------------------------------------
+ iptables -N INTERNET_TO_LAN
+ iptables -A INTERNET_TO_LAN -p ICMP -j ACCEPT # ping
+ #iptables -A INTERNET_TO_LAN -p TCP -d 172.16.200.250 -m multiport --dports 3389 -j ACCEPT # rdp
+ #iptables -A INTERNET_TO_LAN -p TCP -d 172.16.200.251 -m multiport --dports 3389 -j ACCEPT # rdp
+
+ # server
+ #iptables -A INTERNET_TO_LAN -p TCP  -d 172.16.1.1 -m multiport --dports 32				-j ACCEPT # management services ssh
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ # FORWARD DMZ TO INTERNET
+ #-------------------------------------------------------
+ iptables -N DMZ_TO_INTERNET
+ iptables -A DMZ_TO_INTERNET -p ICMP -j ACCEPT # icmp
+
+ # default dmz to internet services 
+ iptables -A DMZ_TO_INTERNET -p UDP -m multiport --dports 53,123 -j ACCEPT # public services
+ #iptables -A DMZ_TO_INTERNET -p TCP -m multiport --dports 21,22,80,443 -j ACCEPT # public services
+ #iptables -A DMZ_TO_INTERNET -p TCP -m multiport --dports 25,465,587,110,143,993,995 -j ACCEPT # mail services
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ # FORWARD DMZ TO LAN
+ #-------------------------------------------------------
+ iptables -N DMZ_TO_LAN
+ iptables -A DMZ_TO_LAN -p ICMP -j ACCEPT # icmp
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ 
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ # FORWARD LAN TO INTERNET
+ #-------------------------------------------------------
+ iptables -N LAN_TO_INTERNET
+ iptables -A LAN_TO_INTERNET -p ICMP -j ACCEPT # icmp
+
+ iptables -A LAN_TO_INTERNET -p UDP --dport 53  -j ACCEPT # dns
+ iptables -A LAN_TO_INTERNET -p UDP --dport 123 -j ACCEPT # ntp
+
+ # lan to internet full access
+ #iptables -A LAN_TO_INTERNET -p TCP -m mac --mac-source c8:2a:14:1a:4f:b5 -j ACCEPT # laptop 1
+
+ # blocked services
+ iptables -A LAN_TO_INTERNET -p TCP --dport 25  -j ldrop01 # droppa tutte le connessioni dalla lan verso la porta 25, solo gli host abilitati possono inviare posta dalla lan
+
+ # internet full access
+ iptables -A LAN_TO_INTERNET -p ALL -j ACCEPT # !!! disabilitare questa regola per bloccare l'accesso ad internet
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ # FORWARD LAN TO DMZ
+ #-------------------------------------------------------
+ iptables -N LAN_TO_DMZ
+ iptables -A LAN_TO_DMZ -p ICMP -j ACCEPT # icmp
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ # INPUT INTERNET TO FIREWALL
+ #-------------------------------------------------------
+ iptables -N INTERNET_TO_FIREWALL
+ iptables -A INTERNET_TO_FIREWALL -p ICMP -j ACCEPT
+
+ iptables -A INTERNET_TO_FIREWALL -p TCP  -m multiport --dports 135,136,137,138,139,445 -j DROP # windows shits
+ iptables -A INTERNET_TO_FIREWALL -p UDP  -m multiport --dports 135,136,137,138,139,445 -j DROP # windows shits
+
+ iptables -A INTERNET_TO_FIREWALL -p TCP  -m multiport --dports 32 -j ACCEPT # management services
+ #iptables -A INTERNET_TO_FIREWALL -p UDP  -m multiport --dports 755 -j ACCEPT # openvpn
+ #iptables -A INTERNET_TO_FIREWALL -p TCP  -m multiport --dports 755 -j ACCEPT # openvpn
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ # INPUT DMZ TO FIREWALL
+ #-------------------------------------------------------
+ iptables -N DMZ_TO_FIREWALL
+ iptables -A DMZ_TO_FIREWALL -p ICMP -j ACCEPT
+ iptables -A DMZ_TO_FIREWALL -p TCP  -m multiport --dports 32 -j ACCEPT # management services
+ #iptables -A DMZ_TO_FIREWALL -p TCP  -m multiport --dports 3128  -j ACCEPT # proxy
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ # INPUT LAN TO FIREWALL
+ #-------------------------------------------------------
+ iptables -N LAN_TO_FIREWALL
+ iptables -A LAN_TO_FIREWALL -p ICMP -j ACCEPT
+
+ iptables -A LAN_TO_FIREWALL -p TCP  -m multiport --dports 135,136,137,138,139,445 -j DROP # windows shits
+ iptables -A LAN_TO_FIREWALL -p UDP  -m multiport --dports 135,136,137,138,139,445 -j DROP # windows shits
+ iptables -A LAN_TO_FIREWALL -d 255.255.255.255 -j DROP # drop broadcasts
+
+ iptables -A LAN_TO_FIREWALL -p TCP  -m multiport --dports 32 -j ACCEPT # management services
+ iptables -A LAN_TO_FIREWALL -p UDP  -m multiport --dports 53,123 -j ACCEPT # public services
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+}
+
+chain_forward ()
+{
+ #########################################################
+ ## FORWARD Chain
+
+ # Blocchiamo tutte le connessioni che sono fuori stato
+ #iptables -A FORWARD -p TCP ! --syn -m state --state NEW -m limit --limit 60/minute --limit-burst 1 -j LOG --log-level $LOGLEVEL --log-prefix "Out of State: "
+ #iptables -A FORWARD -p TCP ! --syn -m state --state NEW -j DROP
+
+
+ ## From NET0
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ # from NET0 to NET0
+ #iptables -A FORWARD -p ALL -i $NET0_IF -o $NET0_IF -j accept01
+ iptables -A FORWARD -p ALL -i $NET0_IF -o $NET0_IF -j ACCEPT
+
+ # from NET0 to NET1
+ #iptables -A FORWARD -p ALL  -i $NET0_IF -o $NET1_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $NET0_IF -o $NET1_IF -j LAN_TO_DMZ
+ #iptables -A FORWARD -p ALL  -i $NET0_IF -o $NET1_IF -j INTERNET_TO_DMZ
+
+ # from NET0 to NET2
+ iptables -A FORWARD -p ALL  -i $NET0_IF -o $NET2_IF -j accept01
+ iptables -A FORWARD -p ALL  -i $NET0_IF -o $NET2_IF -j LAN_TO_INTERNET
+
+ # from NET0 to NET3
+ #iptables -A FORWARD -p ALL  -i $NET0_IF -o $NET3_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $NET0_IF -o $NET3_IF -j LAN_TO_INTERNET
+
+ # from NET0 to NET4
+ #iptables -A FORWARD -p ALL  -i $NET0_IF -o $NET4_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $NET0_IF -o $NET4_IF -j LAN_TO_INTERNET
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+ ## From NET1
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ # from NET1 to NET0
+ #iptables -A FORWARD -p ALL  -i $NET1_IF -o $NET0_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $NET1_IF -o $NET0_IF -j DMZ_TO_LAN
+
+ # from NET1 to NET1
+ #iptables -A FORWARD -p ALL  -i $NET1_IF -o $NET1_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $NET1_IF -o $NET1_IF -j ACCEPT
+
+ # from NET1 to NET2
+ #iptables -A FORWARD -p ALL  -i $NET1_IF -o $NET2_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $NET1_IF -o $NET2_IF -j DMZ_TO_INTERNET
+
+ # from NET1 to NET3
+ #iptables -A FORWARD -p ALL  -i $NET1_IF -o $NET3_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $NET1_IF -o $NET3_IF -j DMZ_TO_INTERNET
+
+ # from NET1 to NET4
+ #iptables -A FORWARD -p ALL  -i $NET1_IF -o $NET4_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $NET1_IF -o $NET4_IF -j DMZ_TO_INTERNET
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+ ## From NET2
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ # from NET2 to NET0
+ iptables -A FORWARD -p ALL  -i $NET2_IF -o $NET0_IF -j accept01
+ iptables -A FORWARD -p ALL  -i $NET2_IF -o $NET0_IF -j INTERNET_TO_LAN
+
+ # from NET2 to NET1
+ #iptables -A FORWARD -p ALL  -i $NET2_IF -o $NET1_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $NET2_IF -o $NET1_IF -j INTERNET_TO_DMZ
+
+ # from NET2 to NET2
+ iptables -A FORWARD -p ALL  -i $NET2_IF -o $NET2_IF -j accept01
+
+ # from NET2 to NET3
+ #iptables -A FORWARD -p ALL  -i $NET2_IF -o $NET3_IF -j accept01
+
+ # from NET2 to NET4
+ #iptables -A FORWARD -p ALL  -i $NET2_IF -o $NET4_IF -j accept01
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+ ## From NET3
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ # from NET3 to NET0
+ #iptables -A FORWARD -p ALL  -i $NET3_IF -o $NET0_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $NET3_IF -o $NET0_IF -j INTERNET_TO_LAN
+
+ # from NET3 to NET1
+ #iptables -A FORWARD -p ALL  -i $NET3_IF -o $NET1_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $NET3_IF -o $NET1_IF -j INTERNET_TO_DMZ
+
+ # from NET3 to NET2
+ #iptables -A FORWARD -p ALL  -i $NET3_IF -o $NET2_IF -j accept01
+
+ # from NET3 to NET3
+ #iptables -A FORWARD -p ALL  -i $NET3_IF -o $NET3_IF -j accept01
+
+ # from NET3 to NET4
+ #iptables -A FORWARD -p ALL  -i $NET3_IF -o $NET4_IF -j accept01
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+ ## From NET4
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ # from NET4 to NET0
+ #iptables -A FORWARD -p ALL  -i $NET4_IF -o $NET0_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $NET4_IF -o $NET0_IF -j INTERNET_TO_LAN
+
+ # from NET4 to NET1
+ #iptables -A FORWARD -p ALL  -i $NET4_IF -o $NET1_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $NET4_IF -o $NET1_IF -j INTERNET_TO_DMZ
+
+ # from NET4 to NET2
+ #iptables -A FORWARD -p ALL  -i $NET4_IF -o $NET2_IF -j accept01
+
+ # from NET4 to NET3
+ #iptables -A FORWARD -p ALL  -i $NET4_IF -o $NET3_IF -j accept01
+
+ # from NET4 to NET4
+ #iptables -A FORWARD -p ALL  -i $NET4_IF -o $NET4_IF -j accept01
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+ dummy=""
+}
+
+
+chain_input ()
+{
+ #########################################################
+ ## INPUT Chain
+ ## Regole applicate alla macchina firewall stessa
+
+ # Blocchiamo tutte le connessioni che sono fuori stato
+ #iptables -A INPUT -p TCP ! --syn -m state --state NEW -m limit --limit 60/minute --limit-burst 1 -j LOG --log-level $LOGLEVEL --log-prefix "Out of State: "
+ #iptables -A INPUT -p TCP ! --syn -m state --state NEW -j DROP
+
+ ## From LO
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ # Importante solo per il ciclo interno dell'interfaccia di loopback
+ # from LO
+ iptables -A INPUT -p ALL  -i $LO_IF -j ACCEPT
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ # from NET0
+ iptables -A INPUT -p ALL  -i $NET0_IF -j accept01
+ iptables -A INPUT -p ALL  -i $NET0_IF -j LAN_TO_FIREWALL
+ # from NET1
+ #iptables -A INPUT -p ALL  -i $NET1_IF -j accept01
+ #iptables -A INPUT -p ALL  -i $NET1_IF -j DMZ_TO_FIREWALL
+ # from NET2
+ iptables -A INPUT -p ALL  -i $NET2_IF -j accept01
+ iptables -A INPUT -p ALL  -i $NET2_IF -j INTERNET_TO_FIREWALL
+ # from NET3
+ #iptables -A INPUT -p ALL  -i $NET3_IF -j accept01
+ #iptables -A INPUT -p ALL  -i $NET3_IF -j INTERNET_TO_FIREWALL
+ # from NET4
+ #iptables -A INPUT -p ALL  -i $NET4_IF -j accept01
+ #iptables -A INPUT -p ALL  -i $NET4_IF -j INTERNET_TO_FIREWALL
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ dummy=""
+}
+
+
+chain_output ()
+{
+ #########################################################
+ ## Catena di OUTPUT
+ 
+ # Blocchiamo tutte le connessioni che sono fuori stato
+ #iptables -A OUTPUT -p TCP ! --syn -m state --state NEW -m limit --limit 60/minute --limit-burst 1 -j LOG --log-level $LOGLEVEL --log-prefix "Out of State: "
+ #iptables -A OUTPUT -p TCP ! --syn -m state --state NEW -j DROP
+
+ ## From LO
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ # Importante solo per il ciclo interno dell'interfaccia di loopback
+ # da LO a LO
+ iptables -A OUTPUT -p ALL -o $LO_IF -j ACCEPT
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ # to NET0
+ iptables -A OUTPUT -p ALL -o $NET0_IF -j ACCEPT
+ # to NET1
+ #iptables -A OUTPUT -p ALL -o $NET1_IF -j ACCEPT
+ # to NET2
+ iptables -A OUTPUT -p ALL -o $NET2_IF -j ACCEPT
+ # to NET3
+ #iptables -A OUTPUT -p ALL -o $NET3_IF -j ACCEPT
+ # to NET4
+ #iptables -A OUTPUT -p ALL -o $NET4_IF -j ACCEPT
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ dummy=""
+}
+
+vpn_rules()
+{
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ ## VPN rules to manage a two overlapping networks classes
+
+ # Virtual Network A Network: 172.18.1.0/24 (Real 172.16.0.1/24)
+ # Virtual Network B Network: 172.17.1.0/24 (Real 172.16.0.1/24)
+
+ # Network A to Network B VPN (to install on Network A firewall)
+ # from Network B
+ #iptables -t nat -A PREROUTING  -i $VPN0_IF -d 172.18.1.0/24 -s 172.17.1.0/24 -j NETMAP --to 172.16.1.0/24 # This Map the Destination Network
+ # to Network B
+ #iptables -t nat -A POSTROUTING -o $VPN0_IF -s 172.16.1.0/24 -d 172.17.1.0/24 -j NETMAP --to 172.18.1.0/24 # This Map the Source Network
+ 
+ # Network B to Network A VPN (to install on Network B firewall)
+ # from Network A
+ #iptables -t nat -A PREROUTING  -i $VPN0_IF -d 172.17.1.0/24 -s 172.18.1.0/24 -j NETMAP --to 172.16.1.0/24 # This Map the Destination Network
+ # to Network A
+ #iptables -t nat -A POSTROUTING -o $VPN0_IF -s 172.16.1.0/24 -d 172.18.1.0/24 -j NETMAP --to 172.17.1.0/24 # This Map the Source Network
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ ## VPN0
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ # FORWARD from VPN0
+ #iptables -A FORWARD -p ALL  -i $VPN0_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $VPN0_IF -j ACCEPT
+
+ #iptables -A FORWARD -p ALL -i $VPN0_IF -o $NET0_IF -j ACCEPT
+ #iptables -A FORWARD -p ALL -i $VPN0_IF -o $NET2_IF -j ACCEPT
+ #iptables -A FORWARD -p ALL -i $VPN0_IF -o $NET3_IF -j ACCEPT
+
+ # FORWARD to VPN0
+ #iptables -A FORWARD -p ALL -o $VPN0_IF -j accept01
+ #iptables -A FORWARD -p ALL -o $VPN0_IF -j ACCEPT
+
+ # INPUT from VPN0
+ #iptables -A INPUT   -p ALL -i $VPN0_IF -j accept01
+ #iptables -A INPUT   -p ALL -i $VPN0_IF -j ACCEPT
+
+ # OUTPUT to VPN0
+ #iptables -A OUTPUT  -p ALL -o $VPN0_IF -j ACCEPT
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+ ## VPN1
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ # FORWARD from VPN1
+ #iptables -A FORWARD -p ALL  -i $VPN1_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $VPN1_IF -j ACCEPT
+
+ # FORWARD to VPN1
+ #iptables -A FORWARD -p ALL -o $VPN1_IF -j ACCEPT
+
+ # INPUT from VPN1
+ #iptables -A INPUT   -p ALL -i $VPN1_IF -j accept01
+ #iptables -A INPUT   -p ALL -i $VPN1_IF -j ACCEPT
+
+ # OUTPUT to VPN1
+ #iptables -A OUTPUT  -p ALL -o $VPN1_IF -j ACCEPT
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+ ## VPN2
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ # FORWARD from VPN2
+ #iptables -A FORWARD -p ALL  -i $VPN2_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $VPN2_IF -s 192.168.4.167 -o $NET0_IF -j ACCEPT
+ #iptables -A FORWARD -p ALL  -i $VPN2_IF -o $NET0_IF -j ACCEPT
+
+ # FORWARD to VPN2
+ #iptables -A FORWARD -p ALL -o $VPN2_IF -j ACCEPT
+
+ # INPUT from VPN2
+ #iptables -A INPUT   -p ALL -i $VPN2_IF -j accept01
+ #iptables -A INPUT   -p ALL -i $VPN2_IF -j ACCEPT
+
+ # OUTPUT to VPN2
+ #iptables -A OUTPUT  -p ALL -o $VPN2_IF -j ACCEPT
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+ ## VPN3
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ # FORWARD from VPN3
+ #iptables -A FORWARD -p ALL  -i $VPN3_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $VPN3_IF -o $NET0_IF -j ACCEPT
+ #iptables -A FORWARD -p ALL  -i $VPN3_IF -j ACCEPT
+
+ # FORWARD to VPN3
+ #iptables -A FORWARD -p ALL -o $VPN3_IF -j ACCEPT
+
+ # INPUT from VPN3
+ #iptables -A INPUT   -p ALL -i $VPN3_IF -j accept01
+ #iptables -A INPUT   -p ALL -i $VPN3_IF -j ACCEPT
+
+ # OUTPUT to VPN3
+ #iptables -A OUTPUT  -p ALL -o $VPN3_IF -j ACCEPT
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ # IPSEC Related Packets (Virtual Private Network)
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ iptables -A INPUT   -p 50 -j ACCEPT
+ iptables -A INPUT   -p 51 -j ACCEPT
+ iptables -A OUTPUT  -p 50 -j ACCEPT
+ iptables -A OUTPUT  -p 51 -j ACCEPT
+ iptables -A FORWARD -p 50 -j ACCEPT
+ iptables -A FORWARD -p 51 -j ACCEPT
+ #iptables -A INPUT -p UDP -i $NET2_IF -d $NET2_IP --sport 500 --dport 500 -j laccept01
+ #iptables -A INPUT -p 50  -i $NET2_IF -d $NET2_IP -j laccept01
+ #iptables -A INPUT -p 51  -i $NET2_IF -d $NET2_IP -j laccept01
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ dummy=""
+}
+
+
+chain_misc() {
+ ## Linux Firewall/Router MultiHoming Load Balanced/Failover SubSystem
+ 
+ #iptables -t mangle -A PREROUTING  -j CONNMARK --restore-mark
+
+ #iptables -t mangle -A PREROUTING -i $NET2_IF -m mark --mark 0 -j MARK     --set-mark 1
+ #iptables -t mangle -A PREROUTING -i $NET3_IF -m mark --mark 0 -j MARK     --set-mark 2
+
+ #iptables -t mangle -A POSTROUTING -o $NET2_IF -j MARK --set-mark 1 -m state --state NEW
+ #iptables -t mangle -A POSTROUTING -o $NET3_IF -j MARK --set-mark 2 -m state --state NEW
+ #iptables -t mangle -A POSTROUTING -j CONNMARK --save-mark -m state --state NEW
+
+ #iptables -t nat -A POSTROUTING -p ALL -m mark --mark 1 -j SNAT --to-source $NET2_IP
+ #iptables -t nat -A POSTROUTING -p ALL -m mark --mark 2 -j SNAT --to-source $NET3_IP
+ ## Linux Firewall/Router MultiHoming Load Balanced/Failover SubSystem
+ dummy=""
+}
+
+
+
+####
+## transparent proxy auto management
+# clients with full internet access
+transparent_proxy_auto_management() {
+ IZFIREWALL_CONF_DIR="/etc/izfirewall.d"
+ INTERNET_CLIENTS_LIST_HOST="nolimit-hosts.txt"
+ if  [ -d "$IZFIREWALL_CONF_DIR" ]; then
+
+ cd $IZFIREWALL_CONF_DIR
+ dos2unix -k $INTERNET_CLIENTS_LIST_HOST >/dev/null 2>&1
+
+ for HOST in $(cat $INTERNET_CLIENTS_LIST_HOST | grep -v ^"#")
+   do
+    iptables -t nat -A PREROUTING -p TCP -i $NET0_IF -s $HOST -m tcp --dport 80 -j ACCEPT # no transparent proxy from this ip address
+    iptables -A FORWARD -p ALL -i $NET0_IF -s $HOST -o $NET2_IF -j ACCEPT
+    iptables -A FORWARD -p ALL -i $NET0_IF -s $HOST -o $NET3_IF -j ACCEPT
+    iptables -A FORWARD -p ALL -i $NET0_IF -s $HOST -o $NET4_IF -j ACCEPT
+   done
+
+ unix2dos -k $INTERNET_CLIENTS_LIST_HOST >/dev/null 2>&1
+ chmod 660 $INTERNET_CLIENTS_LIST_HOST
+
+ INTERNET_CLIENTS_LIST_MAC="nolimit-mac-addresses.txt"
+ cd $IZFIREWALL_CONF_DIR
+ dos2unix -k $INTERNET_CLIENTS_LIST_MAC >/dev/null 2>&1
+
+ for MAC in $(cat $INTERNET_CLIENTS_LIST_MAC | grep -v ^"#")
+   do
+    iptables -t nat -A PREROUTING -p TCP -i $NET0_IF -m mac --mac-source $MAC -m tcp --dport 80 -j ACCEPT # no transparent proxy from this mac address
+    iptables -A FORWARD -p ALL -i $NET0_IF -m mac --mac-source $MAC -o $NET2_IF -j ACCEPT
+    iptables -A FORWARD -p ALL -i $NET0_IF -m mac --mac-source $MAC -o $NET3_IF -j ACCEPT
+    iptables -A FORWARD -p ALL -i $NET0_IF -m mac --mac-source $MAC -o $NET4_IF -j ACCEPT
+   done
+
+ unix2dos -k $INTERNET_CLIENTS_LIST_MAC >/dev/null 2>&1
+ chmod 660 $INTERNET_CLIENTS_LIST_MAC
+ # clients with full internet access
+
+ iptables -t nat -A PREROUTING -p TCP              -d 127.0.0.1/16   -m tcp --dport 80 -j ACCEPT			# no transparent proxy to all 127.0.0.1/16 subnet
+ iptables -t nat -A PREROUTING -p TCP              -d 10.0.0.0/8     -m tcp --dport 80 -j ACCEPT			# no transparent proxy to all 10.0.0.0/8 subnet
+ iptables -t nat -A PREROUTING -p TCP              -d 172.16.0.0/16  -m tcp --dport 80 -j ACCEPT			# no transparent proxy to all 172.16.0.0/16 subnet
+ iptables -t nat -A PREROUTING -p TCP              -d 192.168.0.0/16 -m tcp --dport 80 -j ACCEPT			# no transparent proxy to all 192.168.0.0/16 subnet
+
+ iptables -t nat -A PREROUTING -p TCP              -d $NET2_NW       -m tcp --dport 80 -j ACCEPT			# no transparent proxy to internet1 network
+ iptables -t nat -A PREROUTING -p TCP              -d $NET3_NW       -m tcp --dport 80 -j ACCEPT			# no transparent proxy to internet2 network
+ iptables -t nat -A PREROUTING -p TCP              -d $NET4_NW       -m tcp --dport 80 -j ACCEPT			# no transparent proxy to internet3 network
+
+ iptables -t nat -A PREROUTING -p TCP  -s $NET0_NW                   -m tcp --dport 80 -j REDIRECT --to-port 3128	# transparent proxy from lan
+ fi
+}
+
+
+# Policies for Logging all unmatched Packets
+firewall_logging()
+{
+ # Logging of all unmatched packets in the PREROUTING chain
+ #iptables -t nat -A PREROUTING -p ALL -m limit --limit 60/minute --limit-burst 1 -j LOG --log-level $LOGLEVEL --log-prefix "PREROUTING: "
+
+ # Logging of all unmatched packets in the POSTROUTING chain
+ #iptables -t nat -A POSTROUTING -p ALL -m limit --limit 60/minute --limit-burst 1 -j LOG --log-level $LOGLEVEL --log-prefix "POSTROUTING: "
+
+ # Logging of all unmatched packets in the FORWARD chain
+ iptables -A FORWARD -p ALL -m limit --limit 60/minute --limit-burst 1 -j LOG --log-level $LOGLEVEL --log-prefix "DROP: "
+
+ # Logging of all unmatched packets in the INPUT chain
+ iptables -A INPUT   -p ALL -m limit --limit 60/minute --limit-burst 1 -j LOG --log-level $LOGLEVEL --log-prefix "DROP: "
+
+ # Logging of all unmatched packets in the OUTPUT chain
+ iptables -A OUTPUT  -p ALL -m limit --limit 60/minute --limit-burst 1 -j LOG --log-level $LOGLEVEL --log-prefix "DROP: "
+}
+
+
+firewall_rescue()
+{
+ #########################################################
+ ## Modalita' di rescue remoto del firewall
+ ## permette di collegarsi direttamente al firewall da qualsiasi host
+
+ # Abilitare le seguenti linee "SOLAMENTE" per effettuare manutenzione da remoto sul firewall
+ # Ricordarsi che le seguenti regole abilitano incondizionatamente l'accesso alle seguenti porte
+ # senza prendersi cura da dove arrivano i pacchetti
+ iptables -I INPUT -p TCP --dport 21  -j ACCEPT
+ iptables -I INPUT -p TCP --dport 22  -j ACCEPT
+ iptables -I INPUT -p TCP --dport 23  -j ACCEPT
+ iptables -I INPUT -p TCP --dport 32  -j ACCEPT
+
+ dummy=""
+}
+
+ip_accounting() {
+ accounting_chain_manage() {
+  iptables -t mangle -N $1
+ 
+  for PORT in $(echo $2 | sed 's/,/ /g')
+    do
+      iptables -t mangle -A $1 -p tcp -m multiport --ports $PORT -j MARK --set-mark $PORT
+    done
+
+  iptables -t mangle -A $1 -p tcp -m mark --mark 0 -j MARK --set-mark 0
+ }
+
+ #accounting_chain_manage in_acct  21,22,25,80,110,143,443
+ #accounting_chain_manage out_acct 21,22,25,80,110,143,443
+
+ #iptables -t mangle -I FORWARD -i $NET2_IF -j in_acct
+ #iptables -t mangle -I FORWARD -o $NET2_IF -j out_acct
+
+ #iptables -t mangle -I FORWARD -i br0 -m physdev --physdev-in  eth0 -j in_acct
+ #iptables -t mangle -I FORWARD -i br0 -m physdev --physdev-out eth0 -j out_acct
+}
+
+#########################################################
+# Autoconfigurazione indirizzi IP delle interfaccie di rete
+
+find_primary_ip() {
+  if [ ! -z $1 ]
+    then
+      echo -n "$(ip addr show $1 | grep 'inet' | grep -v ":" | awk '{print $2}' | sed -e 's/\/.*//' | head -n1)"
+  fi
+}
+
+find_broadcast() {
+  if [ ! -z $1 ]
+    then
+      echo -n "$(ip addr show $1 | grep 'inet' | grep -v ":" | awk '{print $4}' | head -n1)"
+  fi
+}
+
+find_network() {
+  if [ ! -z $1 ]
+    then
+      #echo "$(find_primary_ip $1)/$(find_netmask $1)"
+      echo -n "$(ipcalc --silent --network $(ip addr show $1 | grep 'inet' | grep -v ":" | awk '{print $2}' | head -n1) | awk -F = '{print $2}')/"
+      echo -n "$(ipcalc --silent --prefix $(ip addr show $1 | grep 'inet' | grep -v ":" | awk '{print $2}' | head -n1) | awk -F = '{print $2}')"
+  fi
+}
+
+find_netmask() {
+  if [ ! -z $1 ]
+    then
+      #echo "$(ip addr show $1 | grep 'inet' | grep -v ":" | awk '{print $2}' | sed -e 's/.*\///')"
+      echo -n "$(ipcalc --silent --netmask $(ip addr show $1 | grep 'inet' | grep -v ":" | awk '{print $2}' | head -n1)| awk -F = '{print $2}')"
+  fi
+}
+
+# Automatic import of preformatted ASCII file
+# FORWARD ASCII File Format: PROTOCOL=FROM_ADDRESS:FROM_PORT=TO_ADDRESS:TO_PORT
+# NAT ASCII File Format: PROTOCOL=PUBLIC_ADDRESS:PUBLIC_PORT=PRIVATE_ADDRESS:PRIVATE_PORT
+external_file_import()
+{
+  set -f
+  EXT_FILE_CONFIG="$1" # External File che contiene la lista delle policies
+  RULE="$2"            # Type of rule: FORWARD or NAT
+  IN="$3"              # Interfaccia da cui arrivano le connessioni
+  OUT="$4"             # Interfaccia in cui sono dirette le connessioni
+
+  pre_run_checks()
+  {
+    if [[ -z "$EXT_FILE_CONFIG" || ! -f "$EXT_FILE_CONFIG" ]]; then echo "il file non è stato specificato oppure non esiste"; ERROR=1; fi
+    if [[ -z "$RULE" || "$RULE" != "FORWARD" && "$RULE" != "NAT" ]]; then echo "non è stata specificata la regola con cui interpretare il file, oppure è errata. regole valide: FORWARDo NAT"; ERROR=1; fi
+    if [ -z "$IN" ]; then echo "non è stata specificata l'interfaccia sorgente"; ERROR=1; fi
+    if [ -z "$OUT" ]; then echo "non è stata specificata l'interfaccia di destinazione"; ERROR=1; fi
+  }
+
+  nat_rules()
+  {
+    if   [[ "$SPT" != "*" && "$DPT" != "*" ]] && [ "$ERROR" != "1" ]
+      then
+        #iptables -t nat -A PREROUTING  -p $PROTO -i $IN -d $SRC --dport $SPT -j DNAT --to-destination $DST:$DPT
+        #iptables -t nat -A POSTROUTING -p $PROTO -o $IN -s $DST --sport $DPT -j SNAT --to-source $SRC:$SPT
+        #iptables -A FORWARD -p $PROTO -i $IN -o $OUT -d $DST --dport $DPT -j ACCEPT
+        iptables -t nat -A PREROUTING  -p $PROTO -d $SRC --dport $SPT -j DNAT --to-destination $DST:$DPT
+        iptables -t nat -A POSTROUTING -s $DST -j SNAT --to-source $SRC
+        iptables -A FORWARD -p $PROTO -d $DST --dport $DPT -j ACCEPT
+    elif [[ "$SPT" = "*" && "$DPT" != "*" ]] && [ "$ERROR" != "1" ]
+      then
+        #iptables -t nat -A PREROUTING  -p $PROTO -i $IN -d $SRC -j DNAT --to-destination $DST:$DPT
+        #iptables -t nat -A POSTROUTING -p $PROTO -o $IN -s $DST --sport $DPT -j SNAT --to-source $SRC
+        #iptables -A FORWARD -p $PROTO -i $IN -o $OUT -d $DST --dport $DPT -j ACCEPT
+        iptables -t nat -A PREROUTING  -p $PROTO -d $SRC -j DNAT --to-destination $DST:$DPT
+        iptables -t nat -A POSTROUTING -s $DST -j SNAT --to-source $SRC
+        iptables -A FORWARD -p $PROTO -d $DST --dport $DPT -j ACCEPT
+    elif [[ "$SPT" != "*" && "$DPT" = "*" ]] && [ "$ERROR" != "1" ]
+      then
+        #iptables -t nat -A PREROUTING  -p $PROTO -i $IN -d $SRC --dport $SPT -j DNAT --to-destination $DST
+        #iptables -t nat -A POSTROUTING -p $PROTO -o $IN -s $DST -j SNAT --to-source $SRC
+        #iptables -A FORWARD -p $PROTO -i $IN -o $OUT -d $DST -j ACCEPT
+        iptables -t nat -A PREROUTING  -p $PROTO -d $SRC --dport $SPT -j DNAT --to-destination $DST
+        iptables -t nat -A POSTROUTING -s $DST -j SNAT --to-source $SRC
+        iptables -A FORWARD -p $PROTO -d $DST -j ACCEPT
+    elif [[ "$SPT" = "*" && "$DPT" = "*" ]] && [ "$ERROR" != "1" ]
+      then
+        #iptables -t nat -A PREROUTING  -p $PROTO -i $IN -d $SRC -j DNAT --to-destination $DST
+        #iptables -t nat -A POSTROUTING -p $PROTO -o $IN -s $DST -j SNAT --to-source $SRC
+        #iptables -A FORWARD -p $PROTO -i $IN -o $OUT -d $DST -j ACCEPT
+        iptables -t nat -A PREROUTING  -p $PROTO -d $SRC -j DNAT --to-destination $DST
+        iptables -t nat -A POSTROUTING -s $DST -j SNAT --to-source $SRC
+        iptables -A FORWARD -p $PROTO -d $DST -j ACCEPT
+    fi
+  }
+  forward_rules()
+  {
+    if   [[ "$SPT" != "*" && "$DPT" != "*" ]] && [ "$ERROR" != "1" ]
+      then
+        iptables -A FORWARD -p $PROTO -i $IN -s $SRC --sport $SPT -o $OUT -d $DST --port $DPT -j ACCEPT
+    elif [[ "$SPT" = "*" && "$DPT" != "*" ]] && [ "$ERROR" != "1" ]
+      then
+        iptables -A FORWARD -p $PROTO -i $IN -s $SRC -o $OUT -d $DST --dport $DPT -j ACCEPT
+    elif [[ "$SPT" != "*" && "$DPT" = "*" ]] && [ "$ERROR" != "1" ]
+      then
+        iptables -A FORWARD -p $PROTO -i $IN -s $SRC --sport $SPT -o $OUT -d $DST -j ACCEPT
+    elif [[ "$SPT" = "*" && "$DPT" = "*" ]] && [ "$ERROR" != "1" ]
+      then
+        iptables -A FORWARD -p $PROTO -i $IN -s $SRC -o $OUT -d $DST -j ACCEPT
+    fi
+  }
+
+  host_expand()
+  {
+    PROTO="$(echo $1 | awk -F'[:=]' '{print $1}')"
+      SRC="$(echo $1 | awk -F'[:=]' '{print $2}')"
+      SPT="$(echo $1 | awk -F'[:=]' '{print $3}')"
+      DST="$(echo $1 | awk -F'[:=]' '{print $4}')"
+      DPT="$(echo $1 | awk -F'[:=]' '{print $5}')"
+  }
+
+  fields_check()
+  {
+   host_expand $LINE
+   if [ -z "$PROTO" ] || [[ "$PROTO" != "ALL" && "$PROTO" != "TCP" && "$PROTO" != "UDP" && "$PROTO" != "ICMP" ]]; then echo "File $EXT_FILE_CONFIG, Riga $CURRENT_LINE: Il campo PROTO non è valido: $PROTO"; ERROR="1"; fi
+   if [ -z "$SRC" ] || [ ! -z $(echo $SRC | grep [a-z,A-Z]) ]; then echo "File $EXT_FILE_CONFIG, Riga $CURRENT_LINE: Il campo SRC non è valido: $SRC"; ERROR="1"; fi
+   if [ -z "$SPT" ] || [ ! -z $(echo $SPT | grep [a-z,A-Z]) ]; then echo "File $EXT_FILE_CONFIG, Riga $CURRENT_LINE: Il campo SPT non è valido: $SPT"; ERROR="1"; fi
+   if [ -z "$DST" ] || [ ! -z $(echo $DST | grep [a-z,A-Z]) ]; then echo "File $EXT_FILE_CONFIG, Riga $CURRENT_LINE: Il campo DST non è valido: $DST"; ERROR="1"; fi
+   if [ -z "$DPT" ] || [ ! -z $(echo $DPT | grep [a-z,A-Z]) ]; then echo "File $EXT_FILE_CONFIG, Riga $CURRENT_LINE: Il campo DPT non è valido: $DPT"; ERROR="1"; fi
+  }
+
+  rules_check()
+  {
+    if [ "$RULE" = "FORWARD" ]; then forward_rules; fi
+    if [ "$RULE" = "NAT" ]; then nat_rules; fi
+  }
+
+  import()
+  {
+    for LINE in $(cat $EXT_FILE_CONFIG | grep ^[TUAI] | awk '{print $1}')
+      do
+        if [ -z "$CURRENT_LINE" ]; then CURRENT_LINE=1; fi
+          fields_check
+          rules_check
+          let CURRENT_LINE=$CURRENT_LINE+1
+          unset ERROR
+      done
+  }
+
+  pre_run_checks
+  if [ "$ERROR" = "1" ]; then return; fi
+  import $EXT_FILE_CONFIG $RULE $IN $OUT
+
+}
+
+
+#########################################################
+# Nota informativa in merito alla creazione di una DMZ su classe privata (like C class 192.168.x.x/24)
+#
+# Esistono svariati modi per pubblicare all'esterno le macchine protette dal firewall:
+# esempi:
+# 1) Utilizzare l'IP Aliasing (orrendo modo di gestione, che sfalza l'interpretazione delle catene)
+# 2) Subnettare la rete
+# 3) Attestare il solito IP pubblico del firewall ad ambedue le interfaccie (Internet e DMZ), e dopo
+#    mediante ProxyARP (e opportune route statiche) pubblicare i MAC Address delle macchine
+#    collocate nella DMZ, le quali avranno gli ip pubblici e come default gateway l'indirizzo
+#    del router (mediante questa tecnica e il supporto bridging a livello kernel e' possibile realizzare
+#    degli stealth firewall)
+# 4) Pubblicare staticamente (punto-punto) le ARP gestite dal firewall che corrispondono agli indirizzi
+#    pubblici dei server protetti nella DMZ.
+#    Per creare un ARP (ARP Proxy) statica vanno seguiti scrupolosamente i seguenti due passi:
+#    # arp -i ethX -s "IP SERVER INTRNET" -D ethX pub
+#    # ip route add "IP SERVER INTERNET" via "IP PRIVATO DMZ"
+
+
+arp_host_expand()
+{
+  IF_NAME=$(echo $1 | awk -F'[:]' '{print $1}') # Interface Name
+  FAKE_IP=$(echo $1 | awk -F'[:]' '{print $2}') # Faked IP
+  REAL_IP=$(echo $1 | awk -F'[:]' '{print $3}') # Real IP
+}
+
+proxyarp_start ()
+{
+ for HOST in ARPHOSTS
+  do
+    arp_host_expand $HOST
+
+    arp -i $IF_NAME -s $FAKE_IP -D $IF_NAME pub
+    ip route add $FAKE_IP via $REAL_IP
+  done
+
+ return
+}
+
+
+proxyarp_stop ()
+{
+ for HOST in ARPHOSTS
+  do
+    arp_host_expand $HOST
+
+    arp -i $IF_NAME -d $FAKE_IP pub
+    ip route del $FAKE_IP via $REAL_IP
+  done
+
+ return
+}
+
+
+firewall_stop ()
+{
+ #########################################################
+ ## Le seguenti regole resettano ai valori di default tutte le impostazioni di iptables
+
+ # Resetto le regole di default nella tabella delle catene standard
+ iptables -P INPUT   ACCEPT
+ iptables -P FORWARD ACCEPT
+ iptables -P OUTPUT  ACCEPT
+
+ # Resetto le regole di default nella tabella nat
+ iptables -t nat -P PREROUTING  ACCEPT
+ iptables -t nat -P POSTROUTING ACCEPT
+ iptables -t nat -P OUTPUT      ACCEPT
+
+ # Resetto tutte le regole delle catene standard, di nat e di mangle
+ iptables -F
+ iptables -F -t nat
+ iptables -F -t mangle
+
+ # Elimino tutte le catene che non sono di default in iptables
+ iptables -X
+ iptables -X -t nat
+ iptables -X -t mangle
+
+ return
+}
+
+
+firewall_init ()
+{
+ #########################################################
+ ## Prepariamo il S.O.
+
+ # Carichiamo alcuni moduli speciali per il NAT di iptables
+ # IMPORTANTE: Questi moduli "speciali" permettono di far funzionare
+ # trasparentemente alcuni protocolli particolari che non gradiscono la 
+ # presenza di un firewall, tipo l'FTP e il DCC send di IRC
+ #/sbin/modprobe ip_conntrack_ftp ports=21,21000
+ #/sbin/modprobe ip_nat_ftp       ports=21,21000
+ /sbin/modprobe ip_conntrack_ftp ports=21
+ /sbin/modprobe ip_nat_ftp
+ #/sbin/modprobe ip_conntrack_irc
+ #/sbin/modprobe ip_nat_irc
+ #/sbin/modprobe ip_nat_h323
+ #/sbin/modprobe ip_conntrack_h323
+
+ # Abilito l'IP Forwarding indispensabile per routare i pacchetti
+ echo "1" > /proc/sys/net/ipv4/ip_forward			# Default: "0"
+
+ # Abilito il ProxyARP automatico di tutte le interfaccie di sistema
+ #echo "1" > /proc/sys/net/ipv4/conf/$NET0_IF/proxy_arp	# Default: "0"
+ #echo "1" > /proc/sys/net/ipv4/conf/$NET1_IF/proxy_arp	# Default: "0"
+ #echo "1" > /proc/sys/net/ipv4/conf/$NET2_IF/proxy_arp	# Default: "0"
+
+ # IP Spoofing attacks
+ echo "0" > /proc/sys/net/ipv4/conf/default/rp_filter		# Default: "1"
+ echo "0" > /proc/sys/net/ipv4/conf/$NET0_IF/rp_filter	# Default: "0"
+ #echo "1" > /proc/sys/net/ipv4/conf/$NET1_IF/rp_filter	# Default: "0"
+ echo "0" > /proc/sys/net/ipv4/conf/$NET2_IF/rp_filter	# Default: "0"
+ #echo "0" > /proc/sys/net/ipv4/conf/$NET3_IF/rp_filter	# Default: "0"
+
+ # Don't respond to broadcast pings
+ echo "1" > /proc/sys/net/ipv4/icmp_echo_ignore_broadcasts	# Default: "0"
+
+ # Block source routing
+ #echo "0" > /proc/sys/net/ipv4/conf/all/accept_source_route	# Default: "0"
+
+ # Kill timestamps
+ #echo "0" > /proc/sys/net/ipv4/tcp_timestamps			# Default: "1"
+
+ # Enable SYN Cookies
+ echo "1" > /proc/sys/net/ipv4/tcp_syncookies			# Default: "0"
+
+ # Kill redirects
+ #echo "0" > /proc/sys/net/ipv4/conf/all/accept_redirects	# Default: "0"
+
+ # Enable bad error message protection
+ echo "1" > /proc/sys/net/ipv4/icmp_ignore_bogus_error_responses # Default: "0"
+
+ # Allow dynamic ip addresses
+ #echo "0" > /proc/sys/net/ipv4/ip_dynaddr			# Default: "0"
+
+ # Log martians (packets with impossible addresses) nb. certain NICs don't like this.
+ #echo "0" > /proc/sys/net/ipv4/conf/all/log_martians		# Default: "0"
+
+ # Set out local port range
+ #echo "1024 65000" > /proc/sys/net/ipv4/ip_local_port_range	# Default: "1024 65000"
+
+ # Reduce DoS'ing ability by reducing timeouts
+ #echo "30"   > /proc/sys/net/ipv4/tcp_fin_timeout		# Default: "60"
+ #echo "1800" > /proc/sys/net/ipv4/tcp_keepalive_time		# Default: "7200"
+ #echo "0"    > /proc/sys/net/ipv4/tcp_window_scaling		# Default: "1"
+ #echo "0"    > /proc/sys/net/ipv4/tcp_sack			# Default: "1"
+
+ return
+}
+
+
+chain_default_policies ()
+{
+ # Prima di tutto disabilitiamo totalmente qualsiasi tipo di accesso
+ # Per poi abilitare solo quello che "VOGLIAMO REALMENTE" far passare
+ iptables -P INPUT   DROP
+ iptables -P OUTPUT  DROP
+ iptables -P FORWARD DROP
+
+ return
+}
+
+
+chain_user ()
+{
+ # Catene speciali di logdrop, logga e poi droppa i pacchetti
+ iptables -N ldrop01
+ iptables -A ldrop01 -p ALL -m limit --limit 60/minute --limit-burst 1 -j LOG --log-prefix "DROP: "
+ iptables -A ldrop01 -p ALL -j DROP
+
+ # Catene speciali di logaccept, logga e poi accetta i pacchetti
+ iptables -N laccept01
+ iptables -A laccept01 -p ALL -m limit --limit 60/minute --limit-burst 1 -j LOG --log-prefix "ACCEPT: "
+ iptables -A laccept01 -p ALL -j ACCEPT
+
+ #iptables -N laccept02
+ #iptables -A laccept02 -p ALL -m state --state ESTABLISHED,RELATED -m limit --limit 60/minute --limit-burst 1 -j LOG --log-level $LOGLEVEL --log-prefix "ACCEPT: "
+ #iptables -A laccept02 -p ALL -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+ # Le seguenti catene sono state create per svariate esigenze.
+ # Ogni catena rappresenta un all-in-one per ciò che concerne
+ # la politica di ACCEPT:
+ #
+ # Utilizzare le seguenti spiegazioni:
+ #
+ # accept01 = Accetta solo le connessioni stabilite da noi verso l'esterno
+ #
+ # accept03 = Accetta solo SYN, ICMP di tipo 8 e 11, e solo
+ #            le connessioni stabilite da noi verso l'esterno
+ #
+ # etc...
+
+ iptables -N accept01
+ iptables -A accept01 -p ALL -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+ #iptables -N accept02
+ #iptables -A accept02 -p ICMP --icmp-type  8 -j ACCEPT
+ #iptables -A accept02 -p ICMP --icmp-type 11 -j ACCEPT
+ #iptables -A accept02 -p ALL  -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+ #iptables -N accept03
+ #iptables -A accept03 -p TCP --syn -j ACCEPT
+ #iptables -A accept03 -p UDP --dport 53 -j ACCEPT
+ #iptables -A accept03 -p ALL -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+ iptables -N accept04
+ iptables -A accept04 -p TCP  --syn -j ACCEPT
+ iptables -A accept04 -p UDP  --dport 53 -j ACCEPT
+ iptables -A accept04 -p ICMP --icmp-type  3 -j ACCEPT
+ iptables -A accept04 -p ICMP --icmp-type  8 -j ACCEPT
+ iptables -A accept04 -p ICMP --icmp-type 11 -j ACCEPT
+ iptables -A accept04 -p ALL  -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+ #iptables -N accept05
+ #iptables -A accept05 -p TCP  --syn -j ACCEPT
+ #iptables -A accept05 -p UDP  -m multiport --dports 53,67,137,138 -j ACCEPT
+ #iptables -A accept05 -p ICMP --icmp-type  8 -j ACCEPT
+ #iptables -A accept05 -p ICMP --icmp-type 11 -j ACCEPT
+ #iptables -A accept05 -p ALL  -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+ #iptables -N accept06
+ #iptables -A accept06 -p TCP  --syn -j ACCEPT
+ #iptables -A accept06 -p UDP  -j ACCEPT
+ #iptables -A accept06 -p ICMP --icmp-type  8 -j ACCEPT
+ #iptables -A accept06 -p ICMP --icmp-type 11 -j ACCEPT
+ #iptables -A accept06 -p ALL  -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+ return
+}
+
+
+if_manage_internal() {
+ LO_IF="lo"                              # Interface Name: Usually Local LoopBack
+ LO_IP="$(find_primary_ip   $LO_IF)"     # IP Address
+ LO_BC="$(find_broadcast    $LO_IF)"     # Network Broadcast
+ LO_NW="$(find_network      $LO_IF)"     # Network Address
+ LO_NM="$(find_netmask      $LO_IF)"     # Network Mask
+
+ if [ ! -z "$NET0_IF" ] ; then
+   NET0_IP="$(find_primary_ip   $NET0_IF)"   # IP Address
+   NET0_BC="$(find_broadcast    $NET0_IF)"   # Network Broadcast
+   NET0_NW="$(find_network      $NET0_IF)"   # Network Address
+   NET0_NM="$(find_netmask      $NET0_IF)"   # Network Mask
+ fi
+
+ if [ ! -z "$NET1_IF" ] ; then
+   NET1_IP="$(find_primary_ip   $NET1_IF)"   # IP Address
+   NET1_BC="$(find_broadcast    $NET1_IF)"   # Network Broadcast
+   NET1_NW="$(find_network      $NET1_IF)"   # Network Address
+   NET1_NM="$(find_netmask      $NET1_IF)"   # Network Mask
+ fi
+
+ if [ ! -z "$NET2_IF" ] ; then
+   NET2_IP="$(find_primary_ip   $NET2_IF)"   # IP Address
+   NET2_BC="$(find_broadcast    $NET2_IF)"   # Network Broadcast
+   NET2_NW="$(find_network      $NET2_IF)"   # Network Address
+   NET2_NM="$(find_netmask      $NET2_IF)"   # Network Mask
+ fi
+
+ if [ ! -z "$NET3_IF" ] ; then
+   NET3_IP="$(find_primary_ip   $NET3_IF)"   # IP Address
+   NET3_BC="$(find_broadcast    $NET3_IF)"   # Network Broadcast
+   NET3_NW="$(find_network      $NET3_IF)"   # Network Address
+   NET3_NM="$(find_netmask      $NET3_IF)"   # Network Mask
+ fi
+
+ if [ ! -z "$NET4_IF" ] ; then
+   NET4_IP="$(find_primary_ip   $NET4_IF)"   # IP Address
+   NET4_BC="$(find_broadcast    $NET4_IF)"   # Network Broadcast
+   NET4_NW="$(find_network      $NET4_IF)"   # Network Address
+   NET4_NM="$(find_netmask      $NET4_IF)"   # Network Mask
+ fi
+
+ if [ ! -z "$VPN0_IF" ] ; then
+   VPN0_IP="$(find_primary_ip   $VPN0_IF)"   # IP Address
+   VPN0_BC="$(find_broadcast    $VPN0_IF)"   # Network Broadcast
+   VPN0_NW="$(find_network      $VPN0_IF)"   # Network Address
+   VPN0_NM="$(find_netmask      $VPN0_IF)"   # Network Mask
+ fi
+
+ if [ ! -z "$VPN1_IF" ] ; then
+   VPN1_IP="$(find_primary_ip   $VPN1_IF)"   # IP Address
+   VPN1_BC="$(find_broadcast    $VPN1_IF)"   # Network Broadcast
+   VPN1_NW="$(find_network      $VPN1_IF)"   # Network Address
+   VPN1_NM="$(find_netmask      $VPN1_IF)"   # Network Mask
+ fi
+
+ if [ ! -z "$VPN2_IF" ] ; then
+   VPN2_IP="$(find_primary_ip   $VPN2_IF)"   # IP Address
+   VPN2_BC="$(find_broadcast    $VPN2_IF)"   # Network Broadcast
+   VPN2_NW="$(find_network      $VPN2_IF)"   # Network Address
+   VPN2_NM="$(find_netmask      $VPN2_IF)"   # Network Mask
+ fi   
+}
+
+startall() {
+        if_manage
+	stopall
+        firewall_init
+        chain_user
+        echo "=== Start Chain Postrouting"
+        chain_postrouting
+        echo "=== Start Chain Prerouting"
+        chain_prerouting
+	echo "=== Start Chain Custom"
+	chain_custom
+        echo "=== Start Chain Input"
+        chain_input
+        echo "=== Start Chain Output"
+        chain_output
+        echo "=== Start Chain Forward"
+        chain_forward
+        echo "=== Start Chain Misc"
+        chain_misc
+        echo "=== Start Chain VPN"
+        vpn_rules
+        echo "=== Start Chain IP Accounting"
+        ip_accounting
+        echo "=== Start Firewall Logging"
+        firewall_logging
+        #echo "=== Start ProxyArp"
+        #proxyarp_start
+        echo "=== Start Chain Default Policies"
+        chain_default_policies
+        echo "====== iZFirewall Subsystem Started"
+        if [ -f /etc/init.d/izbalancing ]; then
+                echo "=== Start iZBalancing Subsystem"
+                /etc/init.d/izbalancing start
+                echo "====== iZBalancing Subsystem Started"
+        fi
+        if [ -f /etc/init.d/fail2ban ]; then
+                echo "=== Start fail2ban Subsystem"
+                /etc/init.d/fail2ban start
+                echo "====== fail2ban Subsystem Started"
+        fi
+}
+
+stopall() {
+        if_manage
+        echo "=== Stop Firewall Rules"
+        firewall_stop
+        #echo "=== Stop ProxyArp"
+        #proxyarp_stop
+        echo "====== iZFirewall Subsystem Stopped"
+        if [ -f /etc/init.d/izbalancing ]; then
+                echo "=== Stop iZBalancing Subsystem"
+                /etc/init.d/izbalancing stop
+                echo "====== iZBalancing Subsystem Stopped"
+        fi
+        if [ -f /etc/init.d/fail2ban ]; then
+                echo "=== Stop fail2ban Subsystem"
+                /etc/init.d/fail2ban stop
+                echo "====== fail2ban Subsystem Stopped"
+        fi
+}
+
+
+#########################################################
+# Configurazione percorsi comandi di sistema
+PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/bin:/usr/local/sbin:/root/bin
+LOGLEVEL="6"
+
+# command prompt menu
+usage(){
+  local progname=$0
+  echo "izFirewall :: Linux firewall bash script
+written by Ugo Viti <ugo.viti@initzero.it>
+version: $VERSION released: $VERSION_DATE
+
+usage: $progname [options]
+
+Option:    Description:
+-----------------------------------------------
+  start        Start the izFirewall subsystem
+  stop         Stop the izFirewall subsystem
+  restart      Restart the izFirewall subsystem
+  arp-stop     Resetta tutte le arp statiche pubblicate
+  arp-start    Inizializza tutte le arp statiche da pubblicare
+  arp-restart  Resetta e poi Iniizializza tutte le arp statiche da pubblicare
+  rescue       Inizializza il firewall in modalita' di RECUPERO remota!
+               (permette il collegamento telnet, ssh e ftp sul firewall!!!)
+  show         Visualizza le catene attualmente attive
+  show-nat     Visualizza le catene di NAT attualmente attive
+  -h           display this help menu
+  -V           display software version
+
+usage: $0 [OPTIONS]"
+}
+
+
+###################################################################
+#################### default program menu and arguments validations
+NO_ARGS=0
+_OPTERROR=65
+
+if [ $# -eq "$NO_ARGS" ]  # Script invoked with no command-line args?
+then
+  usage
+  exit $E_OPTERROR        # Exit and explain usage, if no argument(s) given.
+fi
+# Usage: scriptname -options
+# Note: dash (-) necessary
+
+
+###############################################################################################
+## Definizione opzioni utilizzabili dallo script
+case $1 in
+    stop)
+	stopall
+	;;
+    start)
+	startall
+        ;;
+    restart)
+	startall
+        ;;
+    arp-stop)
+        proxyarp_stop
+        ;;
+    arp-start)
+        proxyarp_start
+        ;;
+    arp-restart)
+        proxyarp_stop
+        proxyarp_start
+        ;;
+    rescue)
+	firewall_rescue
+        ;;
+    show)
+	iptables -L -v -n -t filter
+	;;
+    show-nat)
+	iptables -L -v -n -t nat
+	;;
+    -V)
+	echo $VERSION
+	;;
+    -h)
+	usage
+	;;
+     *)
+	usage
+
+        exit 1
+esac
+
+## The End
+###########################################################
