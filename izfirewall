@@ -11,11 +11,11 @@ VERSION_DATE="20130530"
 ## variabili indispensabili per il corretto funzionamento dello script
 
 if_manage() {
-  NET0_IF="eth0"	# lan
-  #NET1_IF="eth1"	# dmz
-  NET2_IF="eth1"	# internet1 hdsl 8mbit/8mbit
-  #NET3_IF="eth2"	# internet2 adsl 20mbit/1mbit
-  #NET4_IF="eth3"	# internet3 adsl 8mbit/1mbit
+  LAN1_IF="eth0"	# lan
+  #DMZ1_IF="eth1"	# dmz
+  WAN1_IF="eth1"	# internet1 hdsl 8mbit/8mbit
+  #WAN2_IF="eth2"	# internet2 adsl 20mbit/1mbit
+  #WAN3_IF="eth3"	# internet3 adsl 8mbit/1mbit
 
   #VPN0_IF="tun0"	# server udp
   #VPN1_IF="tun1"	# server tcp
@@ -23,7 +23,7 @@ if_manage() {
   if_manage_internal
 
   # arp publishing. format: INTERFACE_NAME:FAKE_IP:REAL_IP
-  #ARPHOSTS="$NET2_FW_IF:83.147.69.141:172.16.1.8"
+  #ARPHOSTS="$WAN1_FW_IF:83.147.69.141:172.16.1.8"
 }
 
 
@@ -36,8 +36,8 @@ chain_prerouting () {
 
  ## NAT FROM LAN TO INTERNET
  # transparent proxy 
- #iptables -t nat -A PREROUTING -p TCP -i $NET0_IF -s $NET0_NW -d   $NET0_NW  -m tcp --dport 80 -j ACCEPT # bypass
- #iptables -t nat -A PREROUTING -p TCP -i $NET0_IF -s $NET0_NW                -m tcp --dport 80 -j REDIRECT --to-port 3128 # enable transparent proxy
+ #iptables -t nat -A PREROUTING -p TCP -i $LAN1_IF -s $LAN1_NW -d   $LAN1_NW  -m tcp --dport 80 -j ACCEPT # bypass
+ #iptables -t nat -A PREROUTING -p TCP -i $LAN1_IF -s $LAN1_NW                -m tcp --dport 80 -j REDIRECT --to-port 3128 # enable transparent proxy
 
  ## NAT FROM INTERNET TO LAN
  #iptables -t nat -A PREROUTING -p TCP  -d 83.147.101.131 --dport 3390 -j DNAT --to-destination 172.16.1.9:3389 # web
@@ -52,17 +52,17 @@ chain_postrouting () {
  ## After routing the packets
 
  # nat servers 1 a 1 in uscita su internet
- #iptables -t nat -A POSTROUTING -p ALL -s 172.16.1.1 -o $NET2_IF -j SNAT --to-source 83.147.101.131 # www.initzero.it
+ #iptables -t nat -A POSTROUTING -p ALL -s 172.16.1.1 -o $WAN1_IF -j SNAT --to-source 83.147.101.131 # www.initzero.it
 
  # lan to lan nat workaround
- #iptables -t nat -A POSTROUTING -p ALL -s $NET0_NW -o $NET0_IF -j MASQUERADE
+ #iptables -t nat -A POSTROUTING -p ALL -s $LAN1_NW -o $LAN1_IF -j MASQUERADE
  # dmz to dmz nat workaround
- #iptables -t nat -A POSTROUTING -p ALL -s $NET1_NW -o $NET1_IF -j MASQUERADE
+ #iptables -t nat -A POSTROUTING -p ALL -s $DMZ1_NW -o $DMZ1_IF -j MASQUERADE
 
  # tutto il resto viene nattato verso internet con gli ip del firewall
- iptables -t nat -A POSTROUTING -p ALL -o $NET2_IF -j SNAT --to-source $NET2_IP
- #iptables -t nat -A POSTROUTING -p ALL -o $NET3_IF -j SNAT --to-source $NET3_IP
- #iptables -t nat -A POSTROUTING -p ALL -o $NET4_IF -j SNAT --to-source $NET4_IP
+ iptables -t nat -A POSTROUTING -p ALL -o $WAN1_IF -j SNAT --to-source $WAN1_IP
+ #iptables -t nat -A POSTROUTING -p ALL -o $WAN2_IF -j SNAT --to-source $WAN2_IP
+ #iptables -t nat -A POSTROUTING -p ALL -o $WAN3_IF -j SNAT --to-source $WAN3_IP
 
  # nat from firewall behind a natting router having a only public ip address fully natted to local firewall ip
  #iptables -t nat -A OUTPUT -d 85.33.149.250  -j DNAT --to-destination 192.168.33.1
@@ -179,12 +179,15 @@ chain_custom() {
  iptables -N LAN_TO_FIREWALL
  iptables -A LAN_TO_FIREWALL -p ICMP -j ACCEPT
 
+ # drop broadcasts and windows protocols
  iptables -A LAN_TO_FIREWALL -p TCP  -m multiport --dports 135,136,137,138,139,445 -j DROP # windows shits
  iptables -A LAN_TO_FIREWALL -p UDP  -m multiport --dports 135,136,137,138,139,445 -j DROP # windows shits
  iptables -A LAN_TO_FIREWALL -d 255.255.255.255 -j DROP # drop broadcasts
 
  iptables -A LAN_TO_FIREWALL -p TCP  -m multiport --dports 32 -j ACCEPT # management services
  iptables -A LAN_TO_FIREWALL -p UDP  -m multiport --dports 53,123 -j ACCEPT # public services
+
+ #iptables -A LAN_TO_FIREWALL -p ALL  -j ACCEPT # enable all from lan
  #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 }
 
@@ -198,115 +201,115 @@ chain_forward ()
  #iptables -A FORWARD -p TCP ! --syn -m state --state NEW -j DROP
 
 
- ## From NET0
+ ## From LAN1
  #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
- # from NET0 to NET0
- #iptables -A FORWARD -p ALL -i $NET0_IF -o $NET0_IF -j accept01
- iptables -A FORWARD -p ALL -i $NET0_IF -o $NET0_IF -j ACCEPT
+ # from LAN1 to LAN1
+ #iptables -A FORWARD -p ALL -i $LAN1_IF -o $LAN1_IF -j accept01
+ iptables -A FORWARD -p ALL -i $LAN1_IF -o $LAN1_IF -j ACCEPT
 
- # from NET0 to NET1
- #iptables -A FORWARD -p ALL  -i $NET0_IF -o $NET1_IF -j accept01
- #iptables -A FORWARD -p ALL  -i $NET0_IF -o $NET1_IF -j LAN_TO_DMZ
- #iptables -A FORWARD -p ALL  -i $NET0_IF -o $NET1_IF -j INTERNET_TO_DMZ
+ # from LAN1 to DMZ1
+ #iptables -A FORWARD -p ALL  -i $LAN1_IF -o $DMZ1_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $LAN1_IF -o $DMZ1_IF -j LAN_TO_DMZ
+ #iptables -A FORWARD -p ALL  -i $LAN1_IF -o $DMZ1_IF -j INTERNET_TO_DMZ
 
- # from NET0 to NET2
- iptables -A FORWARD -p ALL  -i $NET0_IF -o $NET2_IF -j accept01
- iptables -A FORWARD -p ALL  -i $NET0_IF -o $NET2_IF -j LAN_TO_INTERNET
+ # from LAN1 to WAN1
+ iptables -A FORWARD -p ALL  -i $LAN1_IF -o $WAN1_IF -j accept01
+ iptables -A FORWARD -p ALL  -i $LAN1_IF -o $WAN1_IF -j LAN_TO_INTERNET
 
- # from NET0 to NET3
- #iptables -A FORWARD -p ALL  -i $NET0_IF -o $NET3_IF -j accept01
- #iptables -A FORWARD -p ALL  -i $NET0_IF -o $NET3_IF -j LAN_TO_INTERNET
+ # from LAN1 to WAN2
+ #iptables -A FORWARD -p ALL  -i $LAN1_IF -o $WAN2_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $LAN1_IF -o $WAN2_IF -j LAN_TO_INTERNET
 
- # from NET0 to NET4
- #iptables -A FORWARD -p ALL  -i $NET0_IF -o $NET4_IF -j accept01
- #iptables -A FORWARD -p ALL  -i $NET0_IF -o $NET4_IF -j LAN_TO_INTERNET
- #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-
-
- ## From NET1
- #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
- # from NET1 to NET0
- #iptables -A FORWARD -p ALL  -i $NET1_IF -o $NET0_IF -j accept01
- #iptables -A FORWARD -p ALL  -i $NET1_IF -o $NET0_IF -j DMZ_TO_LAN
-
- # from NET1 to NET1
- #iptables -A FORWARD -p ALL  -i $NET1_IF -o $NET1_IF -j accept01
- #iptables -A FORWARD -p ALL  -i $NET1_IF -o $NET1_IF -j ACCEPT
-
- # from NET1 to NET2
- #iptables -A FORWARD -p ALL  -i $NET1_IF -o $NET2_IF -j accept01
- #iptables -A FORWARD -p ALL  -i $NET1_IF -o $NET2_IF -j DMZ_TO_INTERNET
-
- # from NET1 to NET3
- #iptables -A FORWARD -p ALL  -i $NET1_IF -o $NET3_IF -j accept01
- #iptables -A FORWARD -p ALL  -i $NET1_IF -o $NET3_IF -j DMZ_TO_INTERNET
-
- # from NET1 to NET4
- #iptables -A FORWARD -p ALL  -i $NET1_IF -o $NET4_IF -j accept01
- #iptables -A FORWARD -p ALL  -i $NET1_IF -o $NET4_IF -j DMZ_TO_INTERNET
+ # from LAN1 to WAN3
+ #iptables -A FORWARD -p ALL  -i $LAN1_IF -o $WAN3_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $LAN1_IF -o $WAN3_IF -j LAN_TO_INTERNET
  #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 
- ## From NET2
+ ## From DMZ1
  #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
- # from NET2 to NET0
- iptables -A FORWARD -p ALL  -i $NET2_IF -o $NET0_IF -j accept01
- iptables -A FORWARD -p ALL  -i $NET2_IF -o $NET0_IF -j INTERNET_TO_LAN
+ # from DMZ1 to LAN1
+ #iptables -A FORWARD -p ALL  -i $DMZ1_IF -o $LAN1_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $DMZ1_IF -o $LAN1_IF -j DMZ_TO_LAN
 
- # from NET2 to NET1
- #iptables -A FORWARD -p ALL  -i $NET2_IF -o $NET1_IF -j accept01
- #iptables -A FORWARD -p ALL  -i $NET2_IF -o $NET1_IF -j INTERNET_TO_DMZ
+ # from DMZ1 to DMZ1
+ #iptables -A FORWARD -p ALL  -i $DMZ1_IF -o $DMZ1_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $DMZ1_IF -o $DMZ1_IF -j ACCEPT
 
- # from NET2 to NET2
- iptables -A FORWARD -p ALL  -i $NET2_IF -o $NET2_IF -j accept01
+ # from DMZ1 to WAN1
+ #iptables -A FORWARD -p ALL  -i $DMZ1_IF -o $WAN1_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $DMZ1_IF -o $WAN1_IF -j DMZ_TO_INTERNET
 
- # from NET2 to NET3
- #iptables -A FORWARD -p ALL  -i $NET2_IF -o $NET3_IF -j accept01
+ # from DMZ1 to WAN2
+ #iptables -A FORWARD -p ALL  -i $DMZ1_IF -o $WAN2_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $DMZ1_IF -o $WAN2_IF -j DMZ_TO_INTERNET
 
- # from NET2 to NET4
- #iptables -A FORWARD -p ALL  -i $NET2_IF -o $NET4_IF -j accept01
- #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-
-
- ## From NET3
- #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
- # from NET3 to NET0
- #iptables -A FORWARD -p ALL  -i $NET3_IF -o $NET0_IF -j accept01
- #iptables -A FORWARD -p ALL  -i $NET3_IF -o $NET0_IF -j INTERNET_TO_LAN
-
- # from NET3 to NET1
- #iptables -A FORWARD -p ALL  -i $NET3_IF -o $NET1_IF -j accept01
- #iptables -A FORWARD -p ALL  -i $NET3_IF -o $NET1_IF -j INTERNET_TO_DMZ
-
- # from NET3 to NET2
- #iptables -A FORWARD -p ALL  -i $NET3_IF -o $NET2_IF -j accept01
-
- # from NET3 to NET3
- #iptables -A FORWARD -p ALL  -i $NET3_IF -o $NET3_IF -j accept01
-
- # from NET3 to NET4
- #iptables -A FORWARD -p ALL  -i $NET3_IF -o $NET4_IF -j accept01
+ # from DMZ1 to WAN3
+ #iptables -A FORWARD -p ALL  -i $DMZ1_IF -o $WAN3_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $DMZ1_IF -o $WAN3_IF -j DMZ_TO_INTERNET
  #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 
- ## From NET4
+ ## From WAN1
  #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
- # from NET4 to NET0
- #iptables -A FORWARD -p ALL  -i $NET4_IF -o $NET0_IF -j accept01
- #iptables -A FORWARD -p ALL  -i $NET4_IF -o $NET0_IF -j INTERNET_TO_LAN
+ # from WAN1 to LAN1
+ iptables -A FORWARD -p ALL  -i $WAN1_IF -o $LAN1_IF -j accept01
+ iptables -A FORWARD -p ALL  -i $WAN1_IF -o $LAN1_IF -j INTERNET_TO_LAN
 
- # from NET4 to NET1
- #iptables -A FORWARD -p ALL  -i $NET4_IF -o $NET1_IF -j accept01
- #iptables -A FORWARD -p ALL  -i $NET4_IF -o $NET1_IF -j INTERNET_TO_DMZ
+ # from WAN1 to DMZ1
+ #iptables -A FORWARD -p ALL  -i $WAN1_IF -o $DMZ1_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $WAN1_IF -o $DMZ1_IF -j INTERNET_TO_DMZ
 
- # from NET4 to NET2
- #iptables -A FORWARD -p ALL  -i $NET4_IF -o $NET2_IF -j accept01
+ # from WAN1 to WAN1
+ iptables -A FORWARD -p ALL  -i $WAN1_IF -o $WAN1_IF -j accept01
 
- # from NET4 to NET3
- #iptables -A FORWARD -p ALL  -i $NET4_IF -o $NET3_IF -j accept01
+ # from WAN1 to WAN2
+ #iptables -A FORWARD -p ALL  -i $WAN1_IF -o $WAN2_IF -j accept01
 
- # from NET4 to NET4
- #iptables -A FORWARD -p ALL  -i $NET4_IF -o $NET4_IF -j accept01
+ # from WAN1 to WAN3
+ #iptables -A FORWARD -p ALL  -i $WAN1_IF -o $WAN3_IF -j accept01
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+ ## From WAN2
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ # from WAN2 to LAN1
+ #iptables -A FORWARD -p ALL  -i $WAN2_IF -o $LAN1_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $WAN2_IF -o $LAN1_IF -j INTERNET_TO_LAN
+
+ # from WAN2 to DMZ1
+ #iptables -A FORWARD -p ALL  -i $WAN2_IF -o $DMZ1_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $WAN2_IF -o $DMZ1_IF -j INTERNET_TO_DMZ
+
+ # from WAN2 to WAN1
+ #iptables -A FORWARD -p ALL  -i $WAN2_IF -o $WAN1_IF -j accept01
+
+ # from WAN2 to WAN2
+ #iptables -A FORWARD -p ALL  -i $WAN2_IF -o $WAN2_IF -j accept01
+
+ # from WAN2 to WAN3
+ #iptables -A FORWARD -p ALL  -i $WAN2_IF -o $WAN3_IF -j accept01
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+ ## From WAN3
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ # from WAN3 to LAN1
+ #iptables -A FORWARD -p ALL  -i $WAN3_IF -o $LAN1_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $WAN3_IF -o $LAN1_IF -j INTERNET_TO_LAN
+
+ # from WAN3 to DMZ1
+ #iptables -A FORWARD -p ALL  -i $WAN3_IF -o $DMZ1_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $WAN3_IF -o $DMZ1_IF -j INTERNET_TO_DMZ
+
+ # from WAN3 to WAN1
+ #iptables -A FORWARD -p ALL  -i $WAN3_IF -o $WAN1_IF -j accept01
+
+ # from WAN3 to WAN2
+ #iptables -A FORWARD -p ALL  -i $WAN3_IF -o $WAN2_IF -j accept01
+
+ # from WAN3 to WAN3
+ #iptables -A FORWARD -p ALL  -i $WAN3_IF -o $WAN3_IF -j accept01
  #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 
@@ -331,21 +334,21 @@ chain_input ()
  iptables -A INPUT -p ALL  -i $LO_IF -j ACCEPT
  #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
- # from NET0
- iptables -A INPUT -p ALL  -i $NET0_IF -j accept01
- iptables -A INPUT -p ALL  -i $NET0_IF -j LAN_TO_FIREWALL
- # from NET1
- #iptables -A INPUT -p ALL  -i $NET1_IF -j accept01
- #iptables -A INPUT -p ALL  -i $NET1_IF -j DMZ_TO_FIREWALL
- # from NET2
- iptables -A INPUT -p ALL  -i $NET2_IF -j accept01
- iptables -A INPUT -p ALL  -i $NET2_IF -j INTERNET_TO_FIREWALL
- # from NET3
- #iptables -A INPUT -p ALL  -i $NET3_IF -j accept01
- #iptables -A INPUT -p ALL  -i $NET3_IF -j INTERNET_TO_FIREWALL
- # from NET4
- #iptables -A INPUT -p ALL  -i $NET4_IF -j accept01
- #iptables -A INPUT -p ALL  -i $NET4_IF -j INTERNET_TO_FIREWALL
+ # from LAN1
+ iptables -A INPUT -p ALL  -i $LAN1_IF -j accept01
+ iptables -A INPUT -p ALL  -i $LAN1_IF -j LAN_TO_FIREWALL
+ # from DMZ1
+ #iptables -A INPUT -p ALL  -i $DMZ1_IF -j accept01
+ #iptables -A INPUT -p ALL  -i $DMZ1_IF -j DMZ_TO_FIREWALL
+ # from WAN1
+ iptables -A INPUT -p ALL  -i $WAN1_IF -j accept01
+ iptables -A INPUT -p ALL  -i $WAN1_IF -j INTERNET_TO_FIREWALL
+ # from WAN2
+ #iptables -A INPUT -p ALL  -i $WAN2_IF -j accept01
+ #iptables -A INPUT -p ALL  -i $WAN2_IF -j INTERNET_TO_FIREWALL
+ # from WAN3
+ #iptables -A INPUT -p ALL  -i $WAN3_IF -j accept01
+ #iptables -A INPUT -p ALL  -i $WAN3_IF -j INTERNET_TO_FIREWALL
  #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
  dummy=""
@@ -368,16 +371,16 @@ chain_output ()
  iptables -A OUTPUT -p ALL -o $LO_IF -j ACCEPT
  #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
- # to NET0
- iptables -A OUTPUT -p ALL -o $NET0_IF -j ACCEPT
- # to NET1
- #iptables -A OUTPUT -p ALL -o $NET1_IF -j ACCEPT
- # to NET2
- iptables -A OUTPUT -p ALL -o $NET2_IF -j ACCEPT
- # to NET3
- #iptables -A OUTPUT -p ALL -o $NET3_IF -j ACCEPT
- # to NET4
- #iptables -A OUTPUT -p ALL -o $NET4_IF -j ACCEPT
+ # to LAN1
+ iptables -A OUTPUT -p ALL -o $LAN1_IF -j ACCEPT
+ # to DMZ1
+ #iptables -A OUTPUT -p ALL -o $DMZ1_IF -j ACCEPT
+ # to WAN1
+ iptables -A OUTPUT -p ALL -o $WAN1_IF -j ACCEPT
+ # to WAN2
+ #iptables -A OUTPUT -p ALL -o $WAN2_IF -j ACCEPT
+ # to WAN3
+ #iptables -A OUTPUT -p ALL -o $WAN3_IF -j ACCEPT
  #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
  dummy=""
@@ -410,9 +413,9 @@ vpn_rules()
  #iptables -A FORWARD -p ALL  -i $VPN0_IF -j accept01
  #iptables -A FORWARD -p ALL  -i $VPN0_IF -j ACCEPT
 
- #iptables -A FORWARD -p ALL -i $VPN0_IF -o $NET0_IF -j ACCEPT
- #iptables -A FORWARD -p ALL -i $VPN0_IF -o $NET2_IF -j ACCEPT
- #iptables -A FORWARD -p ALL -i $VPN0_IF -o $NET3_IF -j ACCEPT
+ #iptables -A FORWARD -p ALL -i $VPN0_IF -o $LAN1_IF -j ACCEPT
+ #iptables -A FORWARD -p ALL -i $VPN0_IF -o $WAN1_IF -j ACCEPT
+ #iptables -A FORWARD -p ALL -i $VPN0_IF -o $WAN2_IF -j ACCEPT
 
  # FORWARD to VPN0
  #iptables -A FORWARD -p ALL -o $VPN0_IF -j accept01
@@ -449,8 +452,8 @@ vpn_rules()
  #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
  # FORWARD from VPN2
  #iptables -A FORWARD -p ALL  -i $VPN2_IF -j accept01
- #iptables -A FORWARD -p ALL  -i $VPN2_IF -s 192.168.4.167 -o $NET0_IF -j ACCEPT
- #iptables -A FORWARD -p ALL  -i $VPN2_IF -o $NET0_IF -j ACCEPT
+ #iptables -A FORWARD -p ALL  -i $VPN2_IF -s 192.168.4.167 -o $LAN1_IF -j ACCEPT
+ #iptables -A FORWARD -p ALL  -i $VPN2_IF -o $LAN1_IF -j ACCEPT
 
  # FORWARD to VPN2
  #iptables -A FORWARD -p ALL -o $VPN2_IF -j ACCEPT
@@ -468,7 +471,7 @@ vpn_rules()
  #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
  # FORWARD from VPN3
  #iptables -A FORWARD -p ALL  -i $VPN3_IF -j accept01
- #iptables -A FORWARD -p ALL  -i $VPN3_IF -o $NET0_IF -j ACCEPT
+ #iptables -A FORWARD -p ALL  -i $VPN3_IF -o $LAN1_IF -j ACCEPT
  #iptables -A FORWARD -p ALL  -i $VPN3_IF -j ACCEPT
 
  # FORWARD to VPN3
@@ -490,9 +493,9 @@ vpn_rules()
  iptables -A OUTPUT  -p 51 -j ACCEPT
  iptables -A FORWARD -p 50 -j ACCEPT
  iptables -A FORWARD -p 51 -j ACCEPT
- #iptables -A INPUT -p UDP -i $NET2_IF -d $NET2_IP --sport 500 --dport 500 -j laccept01
- #iptables -A INPUT -p 50  -i $NET2_IF -d $NET2_IP -j laccept01
- #iptables -A INPUT -p 51  -i $NET2_IF -d $NET2_IP -j laccept01
+ #iptables -A INPUT -p UDP -i $WAN1_IF -d $WAN1_IP --sport 500 --dport 500 -j laccept01
+ #iptables -A INPUT -p 50  -i $WAN1_IF -d $WAN1_IP -j laccept01
+ #iptables -A INPUT -p 51  -i $WAN1_IF -d $WAN1_IP -j laccept01
  #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
  dummy=""
@@ -504,15 +507,15 @@ chain_misc() {
  
  #iptables -t mangle -A PREROUTING  -j CONNMARK --restore-mark
 
- #iptables -t mangle -A PREROUTING -i $NET2_IF -m mark --mark 0 -j MARK     --set-mark 1
- #iptables -t mangle -A PREROUTING -i $NET3_IF -m mark --mark 0 -j MARK     --set-mark 2
+ #iptables -t mangle -A PREROUTING -i $WAN1_IF -m mark --mark 0 -j MARK     --set-mark 1
+ #iptables -t mangle -A PREROUTING -i $WAN2_IF -m mark --mark 0 -j MARK     --set-mark 2
 
- #iptables -t mangle -A POSTROUTING -o $NET2_IF -j MARK --set-mark 1 -m state --state NEW
- #iptables -t mangle -A POSTROUTING -o $NET3_IF -j MARK --set-mark 2 -m state --state NEW
+ #iptables -t mangle -A POSTROUTING -o $WAN1_IF -j MARK --set-mark 1 -m state --state NEW
+ #iptables -t mangle -A POSTROUTING -o $WAN2_IF -j MARK --set-mark 2 -m state --state NEW
  #iptables -t mangle -A POSTROUTING -j CONNMARK --save-mark -m state --state NEW
 
- #iptables -t nat -A POSTROUTING -p ALL -m mark --mark 1 -j SNAT --to-source $NET2_IP
- #iptables -t nat -A POSTROUTING -p ALL -m mark --mark 2 -j SNAT --to-source $NET3_IP
+ #iptables -t nat -A POSTROUTING -p ALL -m mark --mark 1 -j SNAT --to-source $WAN1_IP
+ #iptables -t nat -A POSTROUTING -p ALL -m mark --mark 2 -j SNAT --to-source $WAN2_IP
  ## Linux Firewall/Router MultiHoming Load Balanced/Failover SubSystem
  dummy=""
 }
@@ -532,10 +535,10 @@ transparent_proxy_auto_management() {
 
  for HOST in $(cat $INTERNET_CLIENTS_LIST_HOST | grep -v ^"#")
    do
-    iptables -t nat -A PREROUTING -p TCP -i $NET0_IF -s $HOST -m tcp --dport 80 -j ACCEPT # no transparent proxy from this ip address
-    iptables -A FORWARD -p ALL -i $NET0_IF -s $HOST -o $NET2_IF -j ACCEPT
-    iptables -A FORWARD -p ALL -i $NET0_IF -s $HOST -o $NET3_IF -j ACCEPT
-    iptables -A FORWARD -p ALL -i $NET0_IF -s $HOST -o $NET4_IF -j ACCEPT
+    iptables -t nat -A PREROUTING -p TCP -i $LAN1_IF -s $HOST -m tcp --dport 80 -j ACCEPT # no transparent proxy from this ip address
+    iptables -A FORWARD -p ALL -i $LAN1_IF -s $HOST -o $WAN1_IF -j ACCEPT
+    iptables -A FORWARD -p ALL -i $LAN1_IF -s $HOST -o $WAN2_IF -j ACCEPT
+    iptables -A FORWARD -p ALL -i $LAN1_IF -s $HOST -o $WAN3_IF -j ACCEPT
    done
 
  unix2dos -k $INTERNET_CLIENTS_LIST_HOST >/dev/null 2>&1
@@ -547,10 +550,10 @@ transparent_proxy_auto_management() {
 
  for MAC in $(cat $INTERNET_CLIENTS_LIST_MAC | grep -v ^"#")
    do
-    iptables -t nat -A PREROUTING -p TCP -i $NET0_IF -m mac --mac-source $MAC -m tcp --dport 80 -j ACCEPT # no transparent proxy from this mac address
-    iptables -A FORWARD -p ALL -i $NET0_IF -m mac --mac-source $MAC -o $NET2_IF -j ACCEPT
-    iptables -A FORWARD -p ALL -i $NET0_IF -m mac --mac-source $MAC -o $NET3_IF -j ACCEPT
-    iptables -A FORWARD -p ALL -i $NET0_IF -m mac --mac-source $MAC -o $NET4_IF -j ACCEPT
+    iptables -t nat -A PREROUTING -p TCP -i $LAN1_IF -m mac --mac-source $MAC -m tcp --dport 80 -j ACCEPT # no transparent proxy from this mac address
+    iptables -A FORWARD -p ALL -i $LAN1_IF -m mac --mac-source $MAC -o $WAN1_IF -j ACCEPT
+    iptables -A FORWARD -p ALL -i $LAN1_IF -m mac --mac-source $MAC -o $WAN2_IF -j ACCEPT
+    iptables -A FORWARD -p ALL -i $LAN1_IF -m mac --mac-source $MAC -o $WAN3_IF -j ACCEPT
    done
 
  unix2dos -k $INTERNET_CLIENTS_LIST_MAC >/dev/null 2>&1
@@ -562,11 +565,11 @@ transparent_proxy_auto_management() {
  iptables -t nat -A PREROUTING -p TCP              -d 172.16.0.0/16  -m tcp --dport 80 -j ACCEPT			# no transparent proxy to all 172.16.0.0/16 subnet
  iptables -t nat -A PREROUTING -p TCP              -d 192.168.0.0/16 -m tcp --dport 80 -j ACCEPT			# no transparent proxy to all 192.168.0.0/16 subnet
 
- iptables -t nat -A PREROUTING -p TCP              -d $NET2_NW       -m tcp --dport 80 -j ACCEPT			# no transparent proxy to internet1 network
- iptables -t nat -A PREROUTING -p TCP              -d $NET3_NW       -m tcp --dport 80 -j ACCEPT			# no transparent proxy to internet2 network
- iptables -t nat -A PREROUTING -p TCP              -d $NET4_NW       -m tcp --dport 80 -j ACCEPT			# no transparent proxy to internet3 network
+ iptables -t nat -A PREROUTING -p TCP              -d $WAN1_NW       -m tcp --dport 80 -j ACCEPT			# no transparent proxy to internet1 network
+ iptables -t nat -A PREROUTING -p TCP              -d $WAN2_NW       -m tcp --dport 80 -j ACCEPT			# no transparent proxy to internet2 network
+ iptables -t nat -A PREROUTING -p TCP              -d $WAN3_NW       -m tcp --dport 80 -j ACCEPT			# no transparent proxy to internet3 network
 
- iptables -t nat -A PREROUTING -p TCP  -s $NET0_NW                   -m tcp --dport 80 -j REDIRECT --to-port 3128	# transparent proxy from lan
+ iptables -t nat -A PREROUTING -p TCP  -s $LAN1_NW                   -m tcp --dport 80 -j REDIRECT --to-port 3128	# transparent proxy from lan
  fi
 }
 
@@ -623,8 +626,8 @@ ip_accounting() {
  #accounting_chain_manage in_acct  21,22,25,80,110,143,443
  #accounting_chain_manage out_acct 21,22,25,80,110,143,443
 
- #iptables -t mangle -I FORWARD -i $NET2_IF -j in_acct
- #iptables -t mangle -I FORWARD -o $NET2_IF -j out_acct
+ #iptables -t mangle -I FORWARD -i $WAN1_IF -j in_acct
+ #iptables -t mangle -I FORWARD -o $WAN1_IF -j out_acct
 
  #iptables -t mangle -I FORWARD -i br0 -m physdev --physdev-in  eth0 -j in_acct
  #iptables -t mangle -I FORWARD -i br0 -m physdev --physdev-out eth0 -j out_acct
@@ -885,16 +888,16 @@ firewall_init ()
  echo "1" > /proc/sys/net/ipv4/ip_forward			# Default: "0"
 
  # Abilito il ProxyARP automatico di tutte le interfaccie di sistema
- #echo "1" > /proc/sys/net/ipv4/conf/$NET0_IF/proxy_arp	# Default: "0"
- #echo "1" > /proc/sys/net/ipv4/conf/$NET1_IF/proxy_arp	# Default: "0"
- #echo "1" > /proc/sys/net/ipv4/conf/$NET2_IF/proxy_arp	# Default: "0"
+ #echo "1" > /proc/sys/net/ipv4/conf/$LAN1_IF/proxy_arp	# Default: "0"
+ #echo "1" > /proc/sys/net/ipv4/conf/$DMZ1_IF/proxy_arp	# Default: "0"
+ #echo "1" > /proc/sys/net/ipv4/conf/$WAN1_IF/proxy_arp	# Default: "0"
 
  # IP Spoofing attacks
  echo "0" > /proc/sys/net/ipv4/conf/default/rp_filter		# Default: "1"
- echo "0" > /proc/sys/net/ipv4/conf/$NET0_IF/rp_filter	# Default: "0"
- #echo "1" > /proc/sys/net/ipv4/conf/$NET1_IF/rp_filter	# Default: "0"
- echo "0" > /proc/sys/net/ipv4/conf/$NET2_IF/rp_filter	# Default: "0"
- #echo "0" > /proc/sys/net/ipv4/conf/$NET3_IF/rp_filter	# Default: "0"
+ echo "0" > /proc/sys/net/ipv4/conf/$LAN1_IF/rp_filter	# Default: "0"
+ #echo "1" > /proc/sys/net/ipv4/conf/$DMZ1_IF/rp_filter	# Default: "0"
+ echo "0" > /proc/sys/net/ipv4/conf/$WAN1_IF/rp_filter	# Default: "0"
+ #echo "0" > /proc/sys/net/ipv4/conf/$WAN2_IF/rp_filter	# Default: "0"
 
  # Don't respond to broadcast pings
  echo "1" > /proc/sys/net/ipv4/icmp_echo_ignore_broadcasts	# Default: "0"
@@ -1020,39 +1023,39 @@ if_manage_internal() {
  LO_NW="$(find_network      $LO_IF)"     # Network Address
  LO_NM="$(find_netmask      $LO_IF)"     # Network Mask
 
- if [ ! -z "$NET0_IF" ] ; then
-   NET0_IP="$(find_primary_ip   $NET0_IF)"   # IP Address
-   NET0_BC="$(find_broadcast    $NET0_IF)"   # Network Broadcast
-   NET0_NW="$(find_network      $NET0_IF)"   # Network Address
-   NET0_NM="$(find_netmask      $NET0_IF)"   # Network Mask
+ if [ ! -z "$LAN1_IF" ] ; then
+   LAN1_IP="$(find_primary_ip   $LAN1_IF)"   # IP Address
+   LAN1_BC="$(find_broadcast    $LAN1_IF)"   # Network Broadcast
+   LAN1_NW="$(find_network      $LAN1_IF)"   # Network Address
+   LAN1_NM="$(find_netmask      $LAN1_IF)"   # Network Mask
  fi
 
- if [ ! -z "$NET1_IF" ] ; then
-   NET1_IP="$(find_primary_ip   $NET1_IF)"   # IP Address
-   NET1_BC="$(find_broadcast    $NET1_IF)"   # Network Broadcast
-   NET1_NW="$(find_network      $NET1_IF)"   # Network Address
-   NET1_NM="$(find_netmask      $NET1_IF)"   # Network Mask
+ if [ ! -z "$DMZ1_IF" ] ; then
+   DMZ1_IP="$(find_primary_ip   $DMZ1_IF)"   # IP Address
+   DMZ1_BC="$(find_broadcast    $DMZ1_IF)"   # Network Broadcast
+   DMZ1_NW="$(find_network      $DMZ1_IF)"   # Network Address
+   DMZ1_NM="$(find_netmask      $DMZ1_IF)"   # Network Mask
  fi
 
- if [ ! -z "$NET2_IF" ] ; then
-   NET2_IP="$(find_primary_ip   $NET2_IF)"   # IP Address
-   NET2_BC="$(find_broadcast    $NET2_IF)"   # Network Broadcast
-   NET2_NW="$(find_network      $NET2_IF)"   # Network Address
-   NET2_NM="$(find_netmask      $NET2_IF)"   # Network Mask
+ if [ ! -z "$WAN1_IF" ] ; then
+   WAN1_IP="$(find_primary_ip   $WAN1_IF)"   # IP Address
+   WAN1_BC="$(find_broadcast    $WAN1_IF)"   # Network Broadcast
+   WAN1_NW="$(find_network      $WAN1_IF)"   # Network Address
+   WAN1_NM="$(find_netmask      $WAN1_IF)"   # Network Mask
  fi
 
- if [ ! -z "$NET3_IF" ] ; then
-   NET3_IP="$(find_primary_ip   $NET3_IF)"   # IP Address
-   NET3_BC="$(find_broadcast    $NET3_IF)"   # Network Broadcast
-   NET3_NW="$(find_network      $NET3_IF)"   # Network Address
-   NET3_NM="$(find_netmask      $NET3_IF)"   # Network Mask
+ if [ ! -z "$WAN2_IF" ] ; then
+   WAN2_IP="$(find_primary_ip   $WAN2_IF)"   # IP Address
+   WAN2_BC="$(find_broadcast    $WAN2_IF)"   # Network Broadcast
+   WAN2_NW="$(find_network      $WAN2_IF)"   # Network Address
+   WAN2_NM="$(find_netmask      $WAN2_IF)"   # Network Mask
  fi
 
- if [ ! -z "$NET4_IF" ] ; then
-   NET4_IP="$(find_primary_ip   $NET4_IF)"   # IP Address
-   NET4_BC="$(find_broadcast    $NET4_IF)"   # Network Broadcast
-   NET4_NW="$(find_network      $NET4_IF)"   # Network Address
-   NET4_NM="$(find_netmask      $NET4_IF)"   # Network Mask
+ if [ ! -z "$WAN3_IF" ] ; then
+   WAN3_IP="$(find_primary_ip   $WAN3_IF)"   # IP Address
+   WAN3_BC="$(find_broadcast    $WAN3_IF)"   # Network Broadcast
+   WAN3_NW="$(find_network      $WAN3_IF)"   # Network Address
+   WAN3_NM="$(find_netmask      $WAN3_IF)"   # Network Mask
  fi
 
  if [ ! -z "$VPN0_IF" ] ; then
