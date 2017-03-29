@@ -4,8 +4,8 @@
 
 # Script di configurazione FIREWALL - NetFilter Linux Kernel 2.4.x/2.6.x
 # Realizzazione a cura di Ugo Viti <ugo.viti@initzero.it>
-VERSION="1.1"
-VERSION_DATE="20130530"
+VERSION="1.2"
+VERSION_DATE="20170323"
 
 #########################################################
 ## variabili indispensabili per il corretto funzionamento dello script
@@ -17,8 +17,9 @@ if_manage() {
   #WAN2_IF="eth2"	# internet2 adsl 20mbit/1mbit
   #WAN3_IF="eth3"	# internet3 adsl 8mbit/1mbit
 
-  #VPN0_IF="tun0"	# server udp
-  #VPN1_IF="tun1"	# server tcp
+  #VPN1_IF="tun0"	# server udp
+  #VPN2_IF="tun1"	# server tcp
+  #VPN3_IF="ppp0"	# server pptp
 
   if_manage_internal
 
@@ -154,6 +155,10 @@ chain_custom() {
  iptables -N INTERNET_TO_FIREWALL
  iptables -A INTERNET_TO_FIREWALL -p ICMP -j ACCEPT
 
+  # drop broadcasts and windows protocols
+ iptables -A INTERNET_TO_FIREWALL -d 255.255.255.255 -j DROP # drop broadcasts
+ iptables -A INTERNET_TO_FIREWALL -d 224.0.0.1/8 -j DROP # drop multicast
+ iptables -A INTERNET_TO_FIREWALL -d $WAN1_BC -j DROP # drop broadcasts
  iptables -A INTERNET_TO_FIREWALL -p TCP  -m multiport --dports 135,136,137,138,139,445 -j DROP # windows shits
  iptables -A INTERNET_TO_FIREWALL -p UDP  -m multiport --dports 135,136,137,138,139,445 -j DROP # windows shits
 
@@ -180,9 +185,11 @@ chain_custom() {
  iptables -A LAN_TO_FIREWALL -p ICMP -j ACCEPT
 
  # drop broadcasts and windows protocols
+ iptables -A LAN_TO_FIREWALL -d 255.255.255.255 -j DROP # drop broadcasts
+ iptables -A LAN_TO_FIREWALL -d 224.0.0.1/8 -j DROP # drop multicast
+ iptables -A LAN_TO_FIREWALL -d $LAN1_BC -j DROP # drop broadcasts
  iptables -A LAN_TO_FIREWALL -p TCP  -m multiport --dports 135,136,137,138,139,445 -j DROP # windows shits
  iptables -A LAN_TO_FIREWALL -p UDP  -m multiport --dports 135,136,137,138,139,445 -j DROP # windows shits
- iptables -A LAN_TO_FIREWALL -d 255.255.255.255 -j DROP # drop broadcasts
 
  iptables -A LAN_TO_FIREWALL -p TCP  -m multiport --dports 32 -j ACCEPT # management services
  iptables -A LAN_TO_FIREWALL -p UDP  -m multiport --dports 53,123 -j ACCEPT # public services
@@ -391,44 +398,33 @@ vpn_rules()
  #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
  ## VPN rules to manage a two overlapping networks classes
 
- # Virtual Network A Network: 172.18.1.0/24 (Real 172.16.0.1/24)
- # Virtual Network B Network: 172.17.1.0/24 (Real 172.16.0.1/24)
+ ### simple example: only one firewall manage the NETMAP
+ # Network A: real subnet: 172.16.1.0/24
+ # Network B: real subnet: 172.16.1.0/24
+ # Virtual Exchange Network: 172.17.1.0/24
+
+ # to install on ONLY on Network A firewall
+ # packets from Network B
+ #iptables -t nat -A PREROUTING  -i $VPN1_IF -d 172.17.1.0/24 -s 172.16.1.0/24 -j NETMAP --to 172.16.1.0/24 # This Map the Destination Network
+ #iptables -t nat -A POSTROUTING -o $LAN1_IF -s 172.16.1.0/24 -d 172.16.1.0/24 -j NETMAP --to 172.17.1.0/24 # This Map the Source Network
+ #iptables -t nat -A POSTROUTING -o $VPN1_IF -s 172.16.1.0/24 -d 172.17.1.0/24 -j NETMAP --to 172.17.1.0/24 # This Map the Source Network
+
+ ### complex example: both firewall manage the NETMAP
+ # Virtual Network A Network: 172.18.1.0/24 (Real 172.16.1.0/24)
+ # Virtual Network B Network: 172.17.1.0/24 (Real 172.16.1.0/24)
 
  # Network A to Network B VPN (to install on Network A firewall)
  # from Network B
- #iptables -t nat -A PREROUTING  -i $VPN0_IF -d 172.18.1.0/24 -s 172.17.1.0/24 -j NETMAP --to 172.16.1.0/24 # This Map the Destination Network
+ #iptables -t nat -A PREROUTING  -i $VPN1_IF -d 172.18.1.0/24 -s 172.17.1.0/24 -j NETMAP --to 172.16.1.0/24 # This Map the Destination Network
  # to Network B
- #iptables -t nat -A POSTROUTING -o $VPN0_IF -s 172.16.1.0/24 -d 172.17.1.0/24 -j NETMAP --to 172.18.1.0/24 # This Map the Source Network
+ #iptables -t nat -A POSTROUTING -o $VPN1_IF -s 172.16.1.0/24 -d 172.17.1.0/24 -j NETMAP --to 172.18.1.0/24 # This Map the Source Network
  
  # Network B to Network A VPN (to install on Network B firewall)
  # from Network A
- #iptables -t nat -A PREROUTING  -i $VPN0_IF -d 172.17.1.0/24 -s 172.18.1.0/24 -j NETMAP --to 172.16.1.0/24 # This Map the Destination Network
+ #iptables -t nat -A PREROUTING  -i $VPN1_IF -d 172.17.1.0/24 -s 172.18.1.0/24 -j NETMAP --to 172.16.1.0/24 # This Map the Destination Network
  # to Network A
- #iptables -t nat -A POSTROUTING -o $VPN0_IF -s 172.16.1.0/24 -d 172.18.1.0/24 -j NETMAP --to 172.17.1.0/24 # This Map the Source Network
+ #iptables -t nat -A POSTROUTING -o $VPN1_IF -s 172.16.1.0/24 -d 172.18.1.0/24 -j NETMAP --to 172.17.1.0/24 # This Map the Source Network
  #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-
- ## VPN0
- #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
- # FORWARD from VPN0
- #iptables -A FORWARD -p ALL  -i $VPN0_IF -j accept01
- #iptables -A FORWARD -p ALL  -i $VPN0_IF -j ACCEPT
-
- #iptables -A FORWARD -p ALL -i $VPN0_IF -o $LAN1_IF -j ACCEPT
- #iptables -A FORWARD -p ALL -i $VPN0_IF -o $WAN1_IF -j ACCEPT
- #iptables -A FORWARD -p ALL -i $VPN0_IF -o $WAN2_IF -j ACCEPT
-
- # FORWARD to VPN0
- #iptables -A FORWARD -p ALL -o $VPN0_IF -j accept01
- #iptables -A FORWARD -p ALL -o $VPN0_IF -j ACCEPT
-
- # INPUT from VPN0
- #iptables -A INPUT   -p ALL -i $VPN0_IF -j accept01
- #iptables -A INPUT   -p ALL -i $VPN0_IF -j ACCEPT
-
- # OUTPUT to VPN0
- #iptables -A OUTPUT  -p ALL -o $VPN0_IF -j ACCEPT
- #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-
 
  ## VPN1
  #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
@@ -436,7 +432,12 @@ vpn_rules()
  #iptables -A FORWARD -p ALL  -i $VPN1_IF -j accept01
  #iptables -A FORWARD -p ALL  -i $VPN1_IF -j ACCEPT
 
+ #iptables -A FORWARD -p ALL -i $VPN1_IF -o $LAN1_IF -j ACCEPT
+ #iptables -A FORWARD -p ALL -i $VPN1_IF -o $WAN1_IF -j ACCEPT
+ #iptables -A FORWARD -p ALL -i $VPN1_IF -o $WAN2_IF -j ACCEPT
+
  # FORWARD to VPN1
+ #iptables -A FORWARD -p ALL -o $VPN1_IF -j accept01
  #iptables -A FORWARD -p ALL -o $VPN1_IF -j ACCEPT
 
  # INPUT from VPN1
@@ -452,8 +453,7 @@ vpn_rules()
  #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
  # FORWARD from VPN2
  #iptables -A FORWARD -p ALL  -i $VPN2_IF -j accept01
- #iptables -A FORWARD -p ALL  -i $VPN2_IF -s 192.168.4.167 -o $LAN1_IF -j ACCEPT
- #iptables -A FORWARD -p ALL  -i $VPN2_IF -o $LAN1_IF -j ACCEPT
+ #iptables -A FORWARD -p ALL  -i $VPN2_IF -j ACCEPT
 
  # FORWARD to VPN2
  #iptables -A FORWARD -p ALL -o $VPN2_IF -j ACCEPT
@@ -471,8 +471,8 @@ vpn_rules()
  #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
  # FORWARD from VPN3
  #iptables -A FORWARD -p ALL  -i $VPN3_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $VPN3_IF -s 192.168.4.167 -o $LAN1_IF -j ACCEPT
  #iptables -A FORWARD -p ALL  -i $VPN3_IF -o $LAN1_IF -j ACCEPT
- #iptables -A FORWARD -p ALL  -i $VPN3_IF -j ACCEPT
 
  # FORWARD to VPN3
  #iptables -A FORWARD -p ALL -o $VPN3_IF -j ACCEPT
@@ -484,6 +484,26 @@ vpn_rules()
  # OUTPUT to VPN3
  #iptables -A OUTPUT  -p ALL -o $VPN3_IF -j ACCEPT
  #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+ ## VPN4
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ # FORWARD from VPN4
+ #iptables -A FORWARD -p ALL  -i $VPN4_IF -j accept01
+ #iptables -A FORWARD -p ALL  -i $VPN4_IF -o $LAN1_IF -j ACCEPT
+ #iptables -A FORWARD -p ALL  -i $VPN4_IF -j ACCEPT
+
+ # FORWARD to VPN4
+ #iptables -A FORWARD -p ALL -o $VPN4_IF -j ACCEPT
+
+ # INPUT from VPN4
+ #iptables -A INPUT   -p ALL -i $VPN4_IF -j accept01
+ #iptables -A INPUT   -p ALL -i $VPN4_IF -j ACCEPT
+
+ # OUTPUT to VPN4
+ #iptables -A OUTPUT  -p ALL -o $VPN4_IF -j ACCEPT
+ #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
 
  # IPSEC Related Packets (Virtual Private Network)
  #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
@@ -1058,13 +1078,6 @@ if_manage_internal() {
    WAN3_NM="$(find_netmask      $WAN3_IF)"   # Network Mask
  fi
 
- if [ ! -z "$VPN0_IF" ] ; then
-   VPN0_IP="$(find_primary_ip   $VPN0_IF)"   # IP Address
-   VPN0_BC="$(find_broadcast    $VPN0_IF)"   # Network Broadcast
-   VPN0_NW="$(find_network      $VPN0_IF)"   # Network Address
-   VPN0_NM="$(find_netmask      $VPN0_IF)"   # Network Mask
- fi
-
  if [ ! -z "$VPN1_IF" ] ; then
    VPN1_IP="$(find_primary_ip   $VPN1_IF)"   # IP Address
    VPN1_BC="$(find_broadcast    $VPN1_IF)"   # Network Broadcast
@@ -1077,6 +1090,13 @@ if_manage_internal() {
    VPN2_BC="$(find_broadcast    $VPN2_IF)"   # Network Broadcast
    VPN2_NW="$(find_network      $VPN2_IF)"   # Network Address
    VPN2_NM="$(find_netmask      $VPN2_IF)"   # Network Mask
+ fi
+
+ if [ ! -z "$VPN3_IF" ] ; then
+   VPN3_IP="$(find_primary_ip   $VPN3_IF)"   # IP Address
+   VPN3_BC="$(find_broadcast    $VPN3_IF)"   # Network Broadcast
+   VPN3_NW="$(find_network      $VPN3_IF)"   # Network Address
+   VPN3_NM="$(find_netmask      $VPN3_IF)"   # Network Mask
  fi   
 }
 
