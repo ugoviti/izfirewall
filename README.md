@@ -1,5 +1,6 @@
 # izFirewall
-izFirewall is the InitZero Linux firewall subsystem
+izFirewall is the InitZero Linux firewall subsystem <br/>
+Author: Ugo Viti <ugo.viti@initzero.it>
 
 ## Installation
 copy the izfirewall script into /etc/init.d/ directory and run (if using a RedHat based Linux distro):
