@@ -1,6 +1,11 @@
 #!/bin/sh
-# description: izFirewall :: InitZero Linux firewall subsystem
-# chkconfig: 35 97 11
+### BEGIN INIT INFO
+# Provides:      izfirewall
+# description:   izFirewall :: InitZero Linux firewall subsystem
+# chkconfig:     35 97 11
+# Default-Start: 2 3 4 5
+# Default-Stop:  0 1 6
+### END INIT INFO
 
 # Script di configurazione FIREWALL - NetFilter Linux Kernel 2.4.x/2.6.x
 # Realizzazione a cura di Ugo Viti <ugo.viti@initzero.it>
